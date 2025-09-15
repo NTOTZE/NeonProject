@@ -12,4 +12,4 @@
 - 몬스터 AI 패턴, 인카운터/웨이브 시스템
 - 캐릭터/파티 정보, 웨이브/클리어 정보 UI 연동
 
-[시연 영상](https://youtu.be/uSjSHx6xDgg)
+시연 영상 : https://youtu.be/uSjSHx6xDgg
