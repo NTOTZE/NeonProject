@@ -72,3 +72,10 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 DerivedDataCache/*
+
+# Content 안의 모든 것 무시
+/Content/*
+
+# NeonProject 폴더만 허용
+!/Content/NeonProject
+!/Content/NeonProject/**
