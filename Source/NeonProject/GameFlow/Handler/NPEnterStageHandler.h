@@ -4,9 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "GameFlow/NPGameFlowHandlerBase.h"
+#include "Loading/NPLoadingDisplayData.h"
 #include "NPEnterStageHandler.generated.h"
 
 enum class ENPStageType : uint8;
+struct FStreamableHandle;
 
 USTRUCT(BlueprintType)
 struct FNPEnterStageHandlerData : public FNPGameFlowHandlerDataBase
@@ -16,7 +18,9 @@ struct FNPEnterStageHandlerData : public FNPGameFlowHandlerDataBase
 public:
 	FNPEnterStageHandlerData() = default;
 
-	static TSharedPtr<const TInstancedStruct<FNPGameFlowHandlerDataBase>> Make(ENPStageType stageType, const FName& stageId)
+	static TSharedPtr<const TInstancedStruct<FNPGameFlowHandlerDataBase>> Make(ENPStageType stageType, const FName& stageId,
+		const TArray<FName>& PartyCharacterIds = {}, const TArray<FName>& MonsterIds = {},
+		const TArray<FSoftObjectPath>& AdditionalAssets = {})
 	{
 		TSharedPtr<TInstancedStruct<FNPGameFlowHandlerDataBase>> HandlerDataPtr
 			= MakeShared<TInstancedStruct<FNPGameFlowHandlerDataBase>>();
@@ -25,13 +29,21 @@ public:
 		FNPEnterStageHandlerData& HandlerData = HandlerDataPtr->GetMutable<FNPEnterStageHandlerData>();
 		HandlerData.StageType = stageType;
 		HandlerData.StageId = stageId;
+		HandlerData.PartyCharacterIds = PartyCharacterIds;
+		HandlerData.MonsterIds = MonsterIds;
+		HandlerData.AdditionalAssets = AdditionalAssets;
 
 		return HandlerDataPtr;
 	}
 
 public:
-	ENPStageType StageType;
+	ENPStageType StageType = static_cast<ENPStageType>(0);
 	FName StageId;
+	// 파티 캐릭터와 몬스터 ID는 현재 공용 CharacterData 테이블에서 조회
+	TArray<FName> PartyCharacterIds;
+	TArray<FName> MonsterIds;
+	// 전용 ID 조회가 없는 오브젝트 등은 에셋 경로로 전달
+	TArray<FSoftObjectPath> AdditionalAssets;
 };
 
 UCLASS()
@@ -45,9 +57,23 @@ private:
 	virtual void FinishInternal() override;
 	virtual void CleanupInternal() override;
 
-	void HandlePostLoadMap(UWorld* LoadedWorld);
+	void HandleAssetLoaded(int32 AssetIndex);
+	void AddAsset(const FSoftObjectPath& Path, const FString& DisplayName);
+	void UpdateLoadingDisplay();
+	void HandleLevelLoaded(UWorld* LoadedWorld, bool bSucceeded);
+	void TryCompleteStageEntry();
+	void HandleLoadingScreenClosed();
 
 private:
 	TSoftObjectPtr<UWorld> StageLevel;
-	FDelegateHandle PostLoadMapHandle;
+	TArray<FSoftObjectPath> AssetPaths;
+	TArray<TSharedPtr<FStreamableHandle>> AssetHandles;
+	FNPLoadingDisplayData LoadingDisplay;
+	bool bSubmittingAssets = false;
+	TWeakObjectPtr<UWorld> DestinationWorld;
+	bool bExecuting = false;
+	bool bAssetsLoaded = false;
+	bool bLevelLoaded = false;
+	bool bFailed = false;
+	bool bClosingScreen = false;
 };

@@ -28,6 +28,5 @@ void UNPBattleInfoSummaryWidget::SetBattleInfo(const FNPBattleStageData* battleS
 	BattleName->SetText(battleStageData->StageName);
 	BattleLevel->SetText(FText::AsNumber(battleStageData->Difficulty));
 	BattleDescription->SetText(battleStageData->Description);
-
-	
+	BattleImage->SetBrushFromTexture(battleStageData->ThumbnailTexture.LoadSynchronous());
 }

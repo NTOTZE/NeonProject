@@ -3,6 +3,7 @@
 
 #include "Loading/UI/SNPLoadingScreen.h"
 #include "SlateOptMacros.h"
+#include "Async/Async.h"
 #include "NeonProject.h"
 
 #include "Engine/AssetManager.h"
@@ -14,6 +15,8 @@
 #include "Widgets/Notifications/SProgressBar.h"
 #include "Widgets/Text/STextBlock.h"
 #include "Widgets/Images/SThrobber.h"
+#include "Widgets/Layout/SScrollBox.h"
+#include "Misc/ScopeLock.h"
 #include "Utility/NPInputBlockProcessor.h"
 
 
@@ -22,13 +25,13 @@ void SNPLoadingScreen::Construct(const FArguments& InArgs)
 {
 	FNPInputBlockProcessor::Enable(InputBlockProcessor);
 	if (FSlateApplication::IsInitialized())
+	{
 		FSlateApplication::Get().GetPlatformCursor()->Show(false);
+		bPlatformCursorHidden = true;
+	}
 
 	Resources = InArgs._Resources;
 	Resources.CheckPath();
-
-	FadeInCurveHandle = FadeInSequence.AddCurve(0.f, FadeDuration, ECurveEaseFunction::QuadOut);
-	FadeOutCurveHandle = FadeOutSequence.AddCurve(0.f, FadeDuration, ECurveEaseFunction::QuadIn);
 
 	ChildSlot
 	[
@@ -72,6 +75,46 @@ void SNPLoadingScreen::Construct(const FArguments& InArgs)
 					[
 						SNew(SVerticalBox)
 
+						+ SVerticalBox::Slot()
+						.AutoHeight()
+						.HAlign(HAlign_Left)
+						.Padding(0.f, 0.f, 0.f, 20.f)
+						[
+							SNew(SBox)
+							.WidthOverride(1000.f)
+							[
+								SNew(SBorder)
+								.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+								.BorderBackgroundColor(FLinearColor(0.015f, 0.025f, 0.04f, 0.85f))
+								.Padding(24.f)
+								[
+									SNew(SVerticalBox)
+									+ SVerticalBox::Slot()
+									.AutoHeight()
+									.Padding(0.f, 0.f, 0.f, 14.f)
+									[
+										SAssignNew(LoadingStatusText, STextBlock)
+										.Text(NSLOCTEXT("NPLoading", "Preparing", "스테이지 준비 중"))
+										.Font(FCoreStyle::GetDefaultFontStyle("Bold", 22))
+										.ColorAndOpacity(FLinearColor(0.45f, 0.9f, 1.f))
+									]
+									+ SVerticalBox::Slot()
+									.AutoHeight()
+									[
+										SNew(SBox)
+										.MaxDesiredHeight(240.f)
+										[
+											SNew(SScrollBox)
+											+ SScrollBox::Slot()
+											[
+												SAssignNew(AssetList, SVerticalBox)
+											]
+										]
+									]
+								]
+							]
+						]
+
 						// Loading Throbber
 						+ SVerticalBox::Slot()
 						.AutoHeight()
@@ -114,7 +157,7 @@ void SNPLoadingScreen::Construct(const FArguments& InArgs)
 		]
 	];
 
-	SetLoadingProgress(0.5f);
+	SetLoadingProgress(0.f);
 	AsyncLoadResources();
 }
 
@@ -129,10 +172,12 @@ void SNPLoadingScreen::Shutdown()
 {
 	FNPInputBlockProcessor::Disable(InputBlockProcessor);
 
-	if (FadeTimerHandle.IsValid())
+	// 종료와 소멸자가 중복 호출되어도 플랫폼 커서는 한 번만 복원한다.
+	if (bPlatformCursorHidden)
 	{
-		UnRegisterActiveTimer(FadeTimerHandle.ToSharedRef());
-		FadeTimerHandle.Reset();
+		if (FSlateApplication::IsInitialized())
+			FSlateApplication::Get().GetPlatformCursor()->Show(true);
+		bPlatformCursorHidden = false;
 	}
 
 	if (LoadingScreenAssetHandle.IsValid())
@@ -141,11 +186,16 @@ void SNPLoadingScreen::Shutdown()
 		LoadingScreenAssetHandle.Reset();
 	}
 
+	OnLoadingScreenReady.Unbind();
 	OnLoadingScreenFinished.Unbind();
 
 	LoadingContent.Reset();
+	AssetList.Reset();
+	LoadingStatusText.Reset();
 
 	ArtworkBrush.SetResourceObject(nullptr);
+	VignetteBrush.SetResourceObject(nullptr);
+	ThrobberBrush.SetResourceObject(nullptr);
 
 	bFinishRequested = false;
 	bIsReady = false;
@@ -167,25 +217,51 @@ void SNPLoadingScreen::StartLoadingScreen()
 
 void SNPLoadingScreen::BeginFinishLoadingScreen()
 {
-	bFinishRequested = true;
+	// 종료 요청만 기록하고, 실제 연출 상태 변경은 로딩 Slate 스레드에서 처리
+	bFinishRequested.Store(true);
+}
 
-	if (LoadingScreenState != ELoadingScreenState::Visible)
-		return;
+void SNPLoadingScreen::Tick(const FGeometry& AllottedGeometry, double CurrentTime, float DeltaTime)
+{
+	SCompoundWidget::Tick(AllottedGeometry, CurrentTime, DeltaTime);
+	ApplyPendingDisplayData();
 
-	PlayFadeOut();
+	// MoviePlayer 로딩 중에는 ActiveTimer에 의존하지 않고 위젯 Tick에서 Fade 진행
+	if (LoadingScreenState == ELoadingScreenState::FadingIn
+		|| LoadingScreenState == ELoadingScreenState::FadingOut)
+	{
+		FadeElapsedTime += FMath::Max(DeltaTime, 0.f);
+		const float Alpha = FMath::Clamp(FadeElapsedTime / FadeDuration, 0.f, 1.f);
+		if (LoadingScreenState == ELoadingScreenState::FadingIn)
+		{
+			LoadingContent->SetRenderOpacity(1.f - FMath::Square(1.f - Alpha));
+			if (Alpha >= 1.f)
+				LoadingScreenState = ELoadingScreenState::Visible;
+		}
+		else
+		{
+			LoadingContent->SetRenderOpacity(1.f - FMath::Square(Alpha));
+			if (Alpha >= 1.f)
+				FinishLoadingScreen();
+		}
+	}
+
+	// 로딩이 먼저 완료돼도 FadeIn 종료 후 FadeOut 시작
+	if (bFinishRequested.Load() && LoadingScreenState == ELoadingScreenState::Visible)
+		PlayFadeOut();
 }
 
 void SNPLoadingScreen::FinishLoadingScreen()
 {
 	LoadingScreenState = ELoadingScreenState::Finished;
-
-	OnLoadingScreenFinished.ExecuteIfBound();
+	FNPLoadingScreenFinishedDelegate Callback = OnLoadingScreenFinished;
+	// MoviePlayer 종료와 위젯 정리는 게임 스레드에서 처리하도록 완료 델리게이트 전달
+	AsyncTask(ENamedThreads::GameThread, [Callback]() { Callback.ExecuteIfBound(); });
 }
-
 
 void SNPLoadingScreen::SetLoadingProgress(float InProgress)
 {
-	LoadingProgress = FMath::Clamp(InProgress, 0.0f, 1.0f);
+	LoadingProgress.Store(FMath::Clamp(InProgress, 0.0f, 1.0f));
 }
 
 
@@ -204,12 +280,21 @@ void SNPLoadingScreen::AsyncLoadResources()
 			&SNPLoadingScreen::HandleResourcesLoaded
 		)
 	);
+	if (!LoadingScreenAssetHandle)
+		bResourceLoadFailed = true;
 }
 
 void SNPLoadingScreen::HandleResourcesLoaded()
 {
 	NP_LOG(NPLog, Warning, TEXT(""));
-	Resources.CheckLoaded();
+	bResourceLoadFailed = !Resources.ArtworkTexture.IsValid()
+		|| !Resources.VignetteTexture.IsValid() || !Resources.ThrobberTexture.IsValid();
+	if (bResourceLoadFailed)
+	{
+		UE_LOG(LogTemp, Error, TEXT("로딩스크린 리소스 로딩에 실패했습니다."));
+		OnLoadingScreenReady.ExecuteIfBound(false);
+		return;
+	}
 
 	ArtworkBrush.SetResourceObject(Resources.ArtworkTexture.Get());
 	VignetteBrush.SetResourceObject(Resources.VignetteTexture.Get());
@@ -219,7 +304,7 @@ void SNPLoadingScreen::HandleResourcesLoaded()
 
 	bIsReady = true;
 
-	OnLoadingScreenReady.ExecuteIfBound();
+	OnLoadingScreenReady.ExecuteIfBound(true);
 }
 
 
@@ -227,96 +312,120 @@ void SNPLoadingScreen::PlayFadeIn()
 {
 	check(LoadingContent.IsValid());
 	check(LoadingScreenState == ELoadingScreenState::Hidden);
-	check(!FadeTimerHandle.IsValid());
 
 	LoadingScreenState = ELoadingScreenState::FadingIn;
-
-	LoadingContent->SetRenderOpacity(0.0f);
-
-	FadeInSequence.Play(AsShared());
-
-	FadeTimerHandle = RegisterActiveTimer(
-		0.0f,
-		FWidgetActiveTimerDelegate::CreateSP(
-			this,
-			&SNPLoadingScreen::HandleFadeInTimer
-		)
-	);
+	FadeElapsedTime = 0.f;
+	LoadingContent->SetRenderOpacity(0.f);
 }
 
 void SNPLoadingScreen::PlayFadeOut()
 {
 	check(LoadingContent.IsValid());
 	check(LoadingScreenState == ELoadingScreenState::Visible);
-	check(!FadeTimerHandle.IsValid());
 
 	LoadingScreenState = ELoadingScreenState::FadingOut;
-
-	LoadingContent->SetRenderOpacity(1.0f);
-
-	FadeOutSequence.Play(AsShared());
-
-	FadeTimerHandle = RegisterActiveTimer(
-		0.0f,
-		FWidgetActiveTimerDelegate::CreateSP(
-			this,
-			&SNPLoadingScreen::HandleFadeOutTimer
-		)
-	);
+	FadeElapsedTime = 0.f;
+	LoadingContent->SetRenderOpacity(1.f);
 }
 
 TOptional<float> SNPLoadingScreen::GetLoadingProgress() const
 {
-	return LoadingProgress;
+	return LoadingProgress.Load();
 }
 
 FText SNPLoadingScreen::GetLoadingProgressText() const
 {
-	return FText::AsPercent(LoadingProgress);
+		if (DisplayData.Assets.IsEmpty())
+		return NSLOCTEXT("NPLoading", "NoAssetRequests", "추가 에셋 요청 없음");
+	return FText::Format(NSLOCTEXT("NPLoading", "AssetProgress", "에셋 처리 {0} / {1} · {2}"),
+		FText::AsNumber(DisplayData.GetCompletedCount()), FText::AsNumber(DisplayData.Assets.Num()),
+		FText::AsPercent(LoadingProgress.Load()));
 }
 
-
-EActiveTimerReturnType SNPLoadingScreen::HandleFadeInTimer(double CurrentTime, float DeltaTime)
+void SNPLoadingScreen::SetLoadingDisplayData(const FNPLoadingDisplayData& InDisplayData)
 {
-	check(LoadingContent.IsValid());
+	FScopeLock Lock(&DisplayDataMutex);
+	PendingDisplayData = InDisplayData;
+	bDisplayDataPending = true;
+}
 
-	LoadingContent->SetRenderOpacity(FadeInCurveHandle.GetLerp());
-
-	if (FadeInSequence.IsAtEnd())
+void SNPLoadingScreen::ApplyPendingDisplayData()
+{
 	{
-		FadeTimerHandle.Reset();
+		FScopeLock Lock(&DisplayDataMutex);
+		if (!bDisplayDataPending)
+			return;
+		DisplayData = MoveTemp(PendingDisplayData);
+		bDisplayDataPending = false;
+	}
+	if (!AssetList || !LoadingStatusText)
+		return;
 
-		LoadingContent->SetRenderOpacity(1.0f);
+	SetLoadingProgress(DisplayData.GetProgress());
+	LoadingStatusText->SetText(FText::FromString(DisplayData.StatusText));
+	AssetList->ClearChildren();
+	if (DisplayData.Assets.IsEmpty())
+	{
+		AssetList->AddSlot().AutoHeight()
+		[
+			SNew(STextBlock)
+			.Text(NSLOCTEXT("NPLoading", "EmptyAssets", "별도로 요청한 에셋이 없습니다."))
+			.ColorAndOpacity(FLinearColor(0.65f, 0.7f, 0.75f))
+		];
+		return;
+	}
 
-		LoadingScreenState = ELoadingScreenState::Visible;
-
-		if (bFinishRequested)
+	for (const FNPLoadingAssetDisplay& Asset : DisplayData.Assets)
+	{
+		FText StateText;
+		FLinearColor StateColor;
+		switch (Asset.State)
 		{
-			PlayFadeOut();
+		case ENPLoadingAssetState::Loaded:
+			StateText = NSLOCTEXT("NPLoading", "AssetLoaded", "로딩 완료");
+			StateColor = FLinearColor(0.35f, 0.9f, 0.65f);
+			break;
+		case ENPLoadingAssetState::Failed:
+			StateText = NSLOCTEXT("NPLoading", "AssetFailed", "로딩 실패");
+			StateColor = FLinearColor(1.f, 0.35f, 0.35f);
+			break;
+		case ENPLoadingAssetState::Canceled:
+			StateText = NSLOCTEXT("NPLoading", "AssetCanceled", "요청 취소");
+			StateColor = FLinearColor(0.7f, 0.7f, 0.7f);
+			break;
+		default:
+			StateText = NSLOCTEXT("NPLoading", "AssetRequested", "로딩 요청 중");
+			StateColor = FLinearColor(0.5f, 0.8f, 1.f);
+			break;
 		}
 
-		return EActiveTimerReturnType::Stop;
+		AssetList->AddSlot().AutoHeight().Padding(0.f, 5.f)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.f, 0.f, 12.f, 0.f)
+			[
+				SNew(SBox).WidthOverride(6.f).HeightOverride(6.f)
+				[
+					SNew(SBorder)
+					.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+					.BorderBackgroundColor(StateColor)
+				]
+			]
+			+ SHorizontalBox::Slot().FillWidth(1.f).VAlign(VAlign_Center)
+			[
+				SNew(STextBlock)
+				.Text(FText::FromString(Asset.DisplayName))
+				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 18))
+				.AutoWrapText(true)
+				.ColorAndOpacity(FLinearColor(0.9f, 0.93f, 0.97f))
+			]
+			+ SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(20.f, 0.f, 0.f, 0.f)
+			[
+				SNew(STextBlock)
+				.Text(StateText)
+				.Font(FCoreStyle::GetDefaultFontStyle("Regular", 16))
+				.ColorAndOpacity(StateColor)
+			]
+		];
 	}
-
-	return EActiveTimerReturnType::Continue;
-}
-
-EActiveTimerReturnType SNPLoadingScreen::HandleFadeOutTimer(double CurrentTime, float DeltaTime)
-{
-	check(LoadingContent.IsValid());
-
-	LoadingContent->SetRenderOpacity(1.f - FadeOutCurveHandle.GetLerp());
-
-	if (FadeOutSequence.IsAtEnd())
-	{
-		FadeTimerHandle.Reset();
-
-		LoadingContent->SetRenderOpacity(0.0f);
-
-		FinishLoadingScreen();
-
-		return EActiveTimerReturnType::Stop;
-	}
-
-	return EActiveTimerReturnType::Continue;
 }

@@ -19,7 +19,19 @@ protected:
 	virtual void NativeOnListItemObjectSet(UObject* ListItemObject) override;
 	virtual void NativeOnEntryReleased() override;
 
-private:
-	//TWeakObjectPtr<class 전투 구성 엑터> Cached전투구성엑터;
+	UFUNCTION(BlueprintImplementableEvent, Category = "NP|Battle")
+	void BP_OnBattleStageItemSet(class UNPBattleSelectionItem* BattleItem);
 
+private:
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> StageNameText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> DifficultyText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	TObjectPtr<class UTextBlock> StageDescriptionText;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class UNPBattleSelectionItem> CachedBattleItem;
 };

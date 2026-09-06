@@ -4,8 +4,8 @@
 #include "Component/NPInteractionComponent.h"
 #include "NeonProject.h"
 #include "Interaction/NPInteractableActorBase.h"
-#include "Component/NPScreenManagerComponent.h"
 #include "DataType/NPScreenTypes.h"
+#include "Screen/NPScreenSubsystem.h"
 
 // Sets default values for this component's properties
 UNPInteractionComponent::UNPInteractionComponent()
@@ -79,15 +79,25 @@ bool UNPInteractionComponent::InteractionByActor(ANPInteractableActorBase* inter
 		*RequestingController->GetClass()->GetName());
 
 
-	//스크린 관련 상호작용일 경우
-	//
-	// * ScreenManager = RequestingController->GetComponentByClass<UNPScreenManagerComponent>();
-	//if (!ScreenManager)
-	//	return false;
+	switch (interactableActor->GetInteractionType())
+	{
+	case ENPInteractionType::BattleEntry:
+	{
+		UGameInstance* GameInstance = RequestingController->GetGameInstance();
+		UNPScreenSubsystem* ScreenSubsystem = IsValid(GameInstance)
+			? GameInstance->GetSubsystem<UNPScreenSubsystem>()
+			: nullptr;
+		if (!ScreenSubsystem)
+		{
+			NP_LOG(NPLog, Warning, TEXT("전투 선택 화면을 열 ScreenSubsystem이 설정되어 있지 않습니다."));
+			return false;
+		}
 
-	//ScreenManager->OpenScreen(ENPScreenType::Dialogue);
-
-	return true;
+		return ScreenSubsystem->OpenScreen(ENPScreenType::BattleSelection);
+	}
+	default:
+		return false;
+	}
 }
 
 void UNPInteractionComponent::SetFocusIndex(int32 newIndex)

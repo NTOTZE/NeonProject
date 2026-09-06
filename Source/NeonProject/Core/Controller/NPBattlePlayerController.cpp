@@ -21,6 +21,7 @@
 #include "Blueprint/UserWidget.h"
 #include "UI/Battle/NPBattleHUDBase.h"
 #include "Core/GameMode/NPBattleGameMode.h"
+#include "Loading/NPStageSessionSubsystem.h"
 
 
 ANPBattlePlayerController::ANPBattlePlayerController()
@@ -131,7 +132,11 @@ void ANPBattlePlayerController::BeginPlay()
 	}
 	SetViewTarget(CameraRig);
 
-	SpawnAndInitParty(SpawnTransform, 1.5f);
+	UNPStageSessionSubsystem* StageSession = GetWorld()->GetSubsystem<UNPStageSessionSubsystem>();
+	check(StageSession);
+	StageSession->OnSessionReady.AddUObject(this, &ThisClass::HandleStageSessionReady);
+	if (StageSession->IsSessionInitialized())
+		HandleStageSessionReady();
 
 }
 
@@ -221,9 +226,25 @@ bool ANPBattlePlayerController::ExecuteInputCommand(FNPInputCommand Command)
 	return bSucceeded;
 }
 
-void ANPBattlePlayerController::SpawnAndInitParty(FTransform SpawnTransform, float SpawnDelay)
+void ANPBattlePlayerController::HandleStageSessionReady()
 {
-	PartyComp->InitParty(this, SpawnTransform);
+	if (bPartyInitialized)
+		return;
+
+	UNPStageSessionSubsystem* StageSession = GetWorld()->GetSubsystem<UNPStageSessionSubsystem>();
+	check(StageSession);
+	const FNPStageSessionData& SessionData = StageSession->GetSessionData();
+
+	AGameModeBase* GameMode = GetWorld()->GetAuthGameMode();
+	AActor* StartPoint = GameMode ? GameMode->FindPlayerStart(this) : nullptr;
+	const FTransform SpawnTransform = StartPoint ? StartPoint->GetActorTransform() : FTransform::Identity;
+	SpawnAndInitParty(SpawnTransform, 1.5f, SessionData.PartyCharacterIds);
+	bPartyInitialized = true;
+}
+
+void ANPBattlePlayerController::SpawnAndInitParty(FTransform SpawnTransform, float SpawnDelay, const TArray<FName>& PartyCharacterIds)
+{
+	PartyComp->InitParty(this, SpawnTransform, PartyCharacterIds);
 
 	OnPossessedPawnChanged.AddDynamic(this, &ANPBattlePlayerController::HandlePossessedPawnChanged);
 	GetWorldTimerManager().SetTimer(TimerHandle_Spawn, this, &ANPBattlePlayerController::BeginSpawnCharacter, SpawnDelay, false);

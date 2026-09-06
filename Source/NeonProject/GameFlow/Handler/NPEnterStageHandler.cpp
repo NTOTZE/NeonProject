@@ -1,72 +1,217 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "GameFlow/Handler/NPEnterStageHandler.h"
 #include "DataType/NPStageData.h"
+#include "DataType/NPCharacterData.h"
 #include "GameData/NPGameDataSubsystem.h"
 #include "Loading/NPLoadingSubsystem.h"
+#include "Loading/NPStageSessionSubsystem.h"
+#include "Screen/NPScreenSubsystem.h"
+#include "Engine/World.h"
 
 void UNPEnterStageHandler::PrepareExecuteInternal()
 {
-	const FNPEnterStageHandlerData& EnterStageData = GetHandlerData().Get<FNPEnterStageHandlerData>();
-
-	switch (EnterStageData.StageType)
+	const FNPEnterStageHandlerData& Data = GetHandlerData().Get<FNPEnterStageHandlerData>();
+	switch (Data.StageType)
 	{
 	case ENPStageType::Hub:
-	{
-		const FNPHubStageData* StageData = UNPGameDataSubsystem::GetGameData<FNPHubStageData>(this, EnterStageData.StageId);
-		if (StageData)
-		{
-			StageLevel = StageData->Level;
-		}
+		if (const FNPHubStageData* Stage = UNPGameDataSubsystem::GetGameData<FNPHubStageData>(this, Data.StageId))
+			StageLevel = Stage->Level;
 		break;
-	}
 	case ENPStageType::Battle:
-	{
-		const FNPBattleStageData* StageData = UNPGameDataSubsystem::GetGameData<FNPBattleStageData>(this, EnterStageData.StageId);
-		if (StageData)
+		if (const FNPBattleStageData* Stage = UNPGameDataSubsystem::GetGameData<FNPBattleStageData>(this, Data.StageId))
 		{
-			StageLevel = StageData->Level;
+			StageLevel = Stage->Level;
+			if (!Stage->EncounterData.IsNull())
+				AddAsset(Stage->EncounterData.ToSoftObjectPath(), TEXT("스테이지 전투 데이터"));
 		}
 		break;
-	}
 	default:
 		break;
 	}
+	checkf(!StageLevel.IsNull(), TEXT("Stage [%s]의 Level이 설정되어 있지 않습니다."), *Data.StageId.ToString());
+	bFailed = StageLevel.IsNull();
 
-	checkf(!StageLevel.IsNull(), TEXT("Stage [%s]의 Level이 설정되어 있지 않습니다."), *EnterStageData.StageId.ToString());
+	auto AddCharacterAssets = [this](const TArray<FName>& Ids, const TCHAR* Category)
+	{
+		for (const FName& Id : Ids)
+		{
+			const FNPCharacterData* Character = UNPGameDataSubsystem::GetGameData<FNPCharacterData>(this, Id);
+			checkf(Character && !Character->CharacterClass.IsNull(), TEXT("Character [%s]의 데이터가 없거나 CharacterClass가 설정되어 있지 않습니다."), *Id.ToString());
+			if (!Character || Character->CharacterClass.IsNull())
+			{
+				bFailed = true;
+				continue;
+			}
+			const FString Name = Character->CharacterName.IsEmpty() ? Id.ToString() : Character->CharacterName.ToString();
+			AddAsset(Character->CharacterClass.ToSoftObjectPath(), FString::Printf(TEXT("%s · %s"), Category, *Name));
+		}
+	};
+	AddCharacterAssets(Data.PartyCharacterIds, TEXT("플레이어 캐릭터"));
+	AddCharacterAssets(Data.MonsterIds, TEXT("몬스터"));
+	for (const FSoftObjectPath& Path : Data.AdditionalAssets)
+	{
+		check(Path.IsValid());
+		if (!Path.IsValid())
+			bFailed = true;
+		else
+			AddAsset(Path, FString::Printf(TEXT("오브젝트 · %s"), *Path.GetAssetName()));
+	}
 
-	UNPLoadingSubsystem::GetChecked(this)->PrepareStageLoading();
+	UNPLoadingSubsystem* Loading = UNPLoadingSubsystem::GetChecked(this);
+	bFailed |= !Loading->PrepareStageLoading();
+	UpdateLoadingDisplay();
+	if (!bFailed)
+	{
+		// 에셋별 핸들로 완료 상태를 기록하고, 중복 경로는 한 번만 요청
+		bSubmittingAssets = true;
+		AssetHandles.SetNum(AssetPaths.Num());
+		for (int32 Index = 0; Index < AssetPaths.Num(); ++Index)
+		{
+			AssetHandles[Index] = Loading->LoadAssets({ AssetPaths[Index] },
+				FStreamableDelegate::CreateUObject(this, &ThisClass::HandleAssetLoaded, Index));
+			if (!AssetHandles[Index])
+			{
+				LoadingDisplay.Assets[Index].State = ENPLoadingAssetState::Failed;
+				bFailed = true;
+			}
+		}
+		bSubmittingAssets = false;
+		bAssetsLoaded = LoadingDisplay.GetCompletedCount() == AssetPaths.Num();
+		UpdateLoadingDisplay();
+	}
 }
 
+void UNPEnterStageHandler::AddAsset(const FSoftObjectPath& Path, const FString& DisplayName)
+{
+	if (AssetPaths.Contains(Path))
+		return;
+	AssetPaths.Add(Path);
+	FNPLoadingAssetDisplay& Asset = LoadingDisplay.Assets.AddDefaulted_GetRef();
+	Asset.DisplayName = DisplayName;
+}
+
+void UNPEnterStageHandler::UpdateLoadingDisplay()
+{
+	if (bFailed)
+		LoadingDisplay.StatusText = TEXT("스테이지 준비에 실패했습니다.");
+	else if (!bAssetsLoaded && !bLevelLoaded)
+		LoadingDisplay.StatusText = bExecuting ? TEXT("에셋 준비 및 레벨 이동 중") : TEXT("에셋 준비 중");
+	else if (!bAssetsLoaded)
+		LoadingDisplay.StatusText = TEXT("에셋 준비 중");
+	else if (!bLevelLoaded)
+		LoadingDisplay.StatusText = bExecuting ? TEXT("에셋 준비 완료 · 레벨 이동 중") : TEXT("에셋 준비 완료 · 레벨 이동 대기 중");
+	else
+		LoadingDisplay.StatusText = TEXT("스테이지 준비 완료");
+	UNPLoadingSubsystem::GetChecked(this)->SetLoadingDisplayData(LoadingDisplay);
+}
 void UNPEnterStageHandler::ExecuteInternal()
 {
-	checkf(!StageLevel.IsNull(), TEXT("PrepareExecuteInternal에서 StageLevel을 설정해야 합니다."));
+	bExecuting = true;
+	UpdateLoadingDisplay();
+	if (bFailed)
+	{
+		TryCompleteStageEntry();
+		return;
+	}
+	UNPLoadingSubsystem::GetChecked(this)->BeginStageTransition(StageLevel,
+		FNPStageLevelLoadedDelegate::CreateUObject(this, &ThisClass::HandleLevelLoaded), false);
+}
 
-	PostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
-		this,
-		&UNPEnterStageHandler::HandlePostLoadMap
-	);
+void UNPEnterStageHandler::HandleAssetLoaded(int32 AssetIndex)
+{
+	check(IsInGameThread());
+	if (bClosingScreen || !LoadingDisplay.Assets.IsValidIndex(AssetIndex))
+		return;
 
-	UNPLoadingSubsystem::GetChecked(this)->BeginStageTransition(StageLevel);
+	const bool bSucceeded = AssetPaths[AssetIndex].ResolveObject() != nullptr;
+	LoadingDisplay.Assets[AssetIndex].State =
+		bSucceeded ? ENPLoadingAssetState::Loaded : ENPLoadingAssetState::Failed;
+	if (!bSucceeded)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Stage 에셋 [%s] 로딩에 실패했습니다."), *AssetPaths[AssetIndex].ToString());
+		bFailed = true;
+	}
+	bAssetsLoaded = LoadingDisplay.GetCompletedCount() == AssetPaths.Num();
+	UpdateLoadingDisplay();
+	if (!bSubmittingAssets)
+		TryCompleteStageEntry();
+}
+void UNPEnterStageHandler::HandleLevelLoaded(UWorld* LoadedWorld, bool bSucceeded)
+{
+	bLevelLoaded = true;
+	DestinationWorld = LoadedWorld;
+	bFailed |= !bSucceeded || !IsValid(LoadedWorld);
+	UpdateLoadingDisplay();
+	TryCompleteStageEntry();
+}
+
+void UNPEnterStageHandler::TryCompleteStageEntry()
+{
+	if (!bExecuting || bClosingScreen)
+		return;
+	// 레벨 이동이 요청된 상태라면 에셋 로딩에 실패해도 레벨 이동 완료까지 대기
+	if (!bFailed && (!bAssetsLoaded || !bLevelLoaded))
+		return;
+	if (bFailed && !bLevelLoaded && !StageLevel.IsNull()
+		&& UNPLoadingSubsystem::GetChecked(this)->IsStageTransitionPending())
+		return;
+
+	bClosingScreen = true;
+	if (bFailed)
+	{
+		for (int32 Index = 0; Index < LoadingDisplay.Assets.Num(); ++Index)
+		{
+			if (LoadingDisplay.Assets[Index].State == ENPLoadingAssetState::Requested)
+			{
+				if (AssetHandles.IsValidIndex(Index) && AssetHandles[Index])
+					AssetHandles[Index]->CancelHandle();
+				LoadingDisplay.Assets[Index].State = ENPLoadingAssetState::Canceled;
+			}
+		}
+	}
+	UpdateLoadingDisplay();
+	// 월드 정리시 기존 Fade 위젯이 제거되므로, 로딩스크린 종료 전에 새 월드에 검은 화면 표시
+	bFailed |= !UNPScreenSubsystem::GetChecked(this)->ShowBlackScreen();
+	UNPLoadingSubsystem::GetChecked(this)->RequestFinishLoadingScreen(
+		FSimpleDelegate::CreateUObject(this, &ThisClass::HandleLoadingScreenClosed));
+}
+
+void UNPEnterStageHandler::HandleLoadingScreenClosed()
+{
+	Finish(!bFailed);
 }
 
 void UNPEnterStageHandler::FinishInternal()
 {
+	if (!bFailed && DestinationWorld.IsValid())
+	{
+		UNPStageSessionSubsystem* Session = DestinationWorld->GetSubsystem<UNPStageSessionSubsystem>();
+		check(Session);
+		if (Session)
+		{
+			const FNPEnterStageHandlerData& Data = GetHandlerData().Get<FNPEnterStageHandlerData>();
+			FNPStageSessionData SessionData;
+			SessionData.StageType = Data.StageType;
+			SessionData.StageId = Data.StageId;
+			SessionData.PartyCharacterIds = Data.PartyCharacterIds;
+			SessionData.MonsterIds = Data.MonsterIds;
+			SessionData.AdditionalAssets = Data.AdditionalAssets;
+			Session->InitializeSession(MoveTemp(SessionData), MoveTemp(AssetHandles));
+		}
+	}
 }
 
 void UNPEnterStageHandler::CleanupInternal()
 {
-	if (PostLoadMapHandle.IsValid())
+	bExecuting = false;
+	UNPLoadingSubsystem::GetChecked(this)->CancelStageLoading();
+	for (TSharedPtr<FStreamableHandle>& Handle : AssetHandles)
 	{
-		FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapHandle);
-		PostLoadMapHandle.Reset();
+		if (Handle && !Handle->HasLoadCompleted())
+			Handle->CancelHandle();
 	}
-
+	AssetHandles.Reset();
+	LoadingDisplay = FNPLoadingDisplayData();
+	AssetPaths.Reset();
+	DestinationWorld.Reset();
 	StageLevel.Reset();
-}
-
-void UNPEnterStageHandler::HandlePostLoadMap(UWorld* LoadedWorld)
-{
-	Finish(IsValid(LoadedWorld));
 }

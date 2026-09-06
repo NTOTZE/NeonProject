@@ -19,6 +19,7 @@ public:
 	virtual void BeginPlay() override;
 
 private:
+	void HandleStageSessionReady();
 	void SetDialogueData(const UNPDialogueDataAsset* DialogueDA);
 	void ShowDialogue();
 	void HideDialogue();
@@ -46,6 +47,8 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<class UNPHubHUDBase> HubHUD;
+
+	bool bHubCharacterSpawned = false;
 
 
 };

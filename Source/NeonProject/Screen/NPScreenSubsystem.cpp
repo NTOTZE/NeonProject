@@ -86,6 +86,11 @@ bool UNPScreenSubsystem::CloseScreen(UNPScreenWidgetBase* screenWidget)
 	return true;
 }
 
+bool UNPScreenSubsystem::ShowBlackScreen()
+{
+	return PlayFadeOut(0.f, 0.f);
+}
+
 bool UNPScreenSubsystem::PlayFadeIn(float fadeDuration, float fadeStartDelay)
 {
 	return PlayFade(ENPFadeAnimationType::FadeIn, fadeDuration, fadeStartDelay);

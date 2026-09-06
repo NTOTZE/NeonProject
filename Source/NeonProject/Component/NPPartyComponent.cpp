@@ -7,6 +7,8 @@
 #include "DataType/NPInputCommandTypes.h"
 #include "Component/NPCharacterStatComponent.h"
 #include "Interface/NPBattleHUDInterface.h"
+#include "DataType/NPCharacterData.h"
+#include "GameData/NPGameDataSubsystem.h"
 
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h" 
@@ -26,11 +28,11 @@ void UNPPartyComponent::BeginPlay()
 	
 }
 
-void UNPPartyComponent::InitParty(APlayerController* PC, const FTransform& Transform)
+void UNPPartyComponent::InitParty(APlayerController* PC, const FTransform& Transform, const TArray<FName>& PartyCharacterIds)
 {
-    if (!PC || PartyClasses.Num() == 0)
+    if (!PC || PartyCharacterIds.IsEmpty())
     {
-        NP_LOG(NPLog, Warning, TEXT("파티 캐릭터 클래스 없음"));
+        NP_LOG(NPLog, Warning, TEXT("파티 캐릭터 ID가 설정되어 있지 않습니다."));
         return;
     }
 
@@ -39,14 +41,20 @@ void UNPPartyComponent::InitParty(APlayerController* PC, const FTransform& Trans
 
     ClearParty();
 
-    for (const TSubclassOf<ANPBattlePlayerCharacter>& Classes : PartyClasses)
+    for (const FName& CharacterId : PartyCharacterIds)
     {
-        if (!*Classes) continue;
+        const FNPCharacterData* CharacterData = UNPGameDataSubsystem::GetGameData<FNPCharacterData>(this, CharacterId);
+        UClass* CharacterClass = CharacterData ? CharacterData->CharacterClass.Get() : nullptr;
+        if (!CharacterClass || !CharacterClass->IsChildOf(ANPBattlePlayerCharacter::StaticClass()))
+        {
+            NP_LOG(NPLog, Warning, TEXT("파티 캐릭터 [%s]의 BattlePlayerCharacter 클래스가 유효하지 않습니다."), *CharacterId.ToString());
+            continue;
+        }
 
         FActorSpawnParameters Params;
         Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-        ANPBattlePlayerCharacter* NewChar = World->SpawnActorDeferred<ANPBattlePlayerCharacter>(Classes, Transform, /*Owner=*/PC);
+        ANPBattlePlayerCharacter* NewChar = World->SpawnActorDeferred<ANPBattlePlayerCharacter>(CharacterClass, Transform, /*Owner=*/PC);
         if (!NewChar)
             continue;
 

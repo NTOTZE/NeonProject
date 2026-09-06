@@ -20,6 +20,7 @@ public:
 	ANPInteractableActorBase();
 
 	const FText& GetInteractionDisplayText() { return InteractionDisplayText; }
+	ENPInteractionType GetInteractionType() const { return InteractionType; }
 
 protected:
 	// Called when the game starts or when spawned
@@ -42,7 +43,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "NP|Interaction")
 	TObjectPtr<class UBoxComponent> TriggerBox;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "NP|Interaction")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NP|Interaction")
 	ENPInteractionType InteractionType = ENPInteractionType::None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "NP|Interaction")

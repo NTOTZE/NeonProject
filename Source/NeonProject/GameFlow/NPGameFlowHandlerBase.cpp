@@ -55,7 +55,6 @@ void UNPGameFlowHandlerBase::Finish(bool bCompleted)
 {
 	if (IsFinished())
 	{
-		Cleanup();
 		return;
 	}
 

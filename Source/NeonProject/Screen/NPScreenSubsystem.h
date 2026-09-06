@@ -31,6 +31,8 @@ public:
 	bool OpenScreen(ENPScreenType screenType);
 	bool CloseScreen(UNPScreenWidgetBase* screenWidget);
 
+	bool ShowBlackScreen();
+
 	bool PlayFadeIn(float fadeDuration = 1.f, float fadeStartDelay = 0.f);
 	bool PlayFadeOut(float fadeDuration = 1.f, float fadeStartDelay = 0.f);
 

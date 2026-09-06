@@ -36,6 +36,7 @@ public:
 	void InitializeHandlerData(const TSharedPtr<const TInstancedStruct<FNPGameFlowHandlerDataBase>>& InHandlerData);
 	void PrepareExecute();
 	void Execute();
+	void Abort() { Finish(false); }
 
 private:
 	virtual void PrepareExecuteInternal() PURE_VIRTUAL(UNPGameFlowHandlerBase::PrepareExecuteInternal, );

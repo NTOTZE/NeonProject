@@ -1,82 +1,231 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
-
 #include "Loading/NPLoadingSubsystem.h"
-#include "NeonProject.h"
 #include "Loading/NPLoadingSettings.h"
 #include "Loading/UI/SNPLoadingScreen.h"
-
+#include "Engine/AssetManager.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
+#include "Kismet/GameplayStatics.h"
 #include "MoviePlayer.h"
 
-/// @brief EnterStageHandler에서 호출될 함수
-void UNPLoadingSubsystem::PrepareStageLoading()
+void UNPLoadingSubsystem::Deinitialize()
 {
-	PrepareLoadingScreen(TEXT("Default"));
-
+	CancelStageLoading();
+	Super::Deinitialize();
 }
 
-/// @brief EnterStageHandler에서 ScreenSubsystem으로부터 FadeOut 완료시 호출되도록 바인드될 함수
-void UNPLoadingSubsystem::BeginStageTransition(const TSoftObjectPtr<UWorld>& StageLevel)
+TSharedPtr<FStreamableHandle> UNPLoadingSubsystem::LoadAssets(
+	const TArray<FSoftObjectPath>& AssetPaths, FStreamableDelegate OnLoaded)
 {
-	check(!StageLevel.IsNull());
-	check(LoadingScreen);
-	if (!LoadingScreen->IsReady())
+	if (AssetPaths.IsEmpty())
 	{
-		LoadingScreen->OnLoadingScreenReady.BindLambda([this, StageLevel]()
-		{
-			BeginStageTransition(StageLevel);
-		});
-		return;
+		OnLoaded.ExecuteIfBound();
+		return nullptr;
 	}
-	LoadingScreen->OnLoadingScreenReady.Unbind();
-
-	BeginLoadingScreen();
-
-	const FString LevelPackageName = StageLevel.ToSoftObjectPath().GetLongPackageName();
-	checkf(!LevelPackageName.IsEmpty(), TEXT("Stage Level 경로가 유효하지 않습니다."));
-	UGameplayStatics::OpenLevel(this, FName(*LevelPackageName));
+	return UAssetManager::GetStreamableManager().RequestAsyncLoad(AssetPaths, MoveTemp(OnLoaded));
 }
 
-void UNPLoadingSubsystem::PrepareLoadingScreen(const FName& ArtworkId)
+bool UNPLoadingSubsystem::PrepareStageLoading(const FName& ArtworkId)
 {
-	IGameMoviePlayer* MoviePlayer = GetMoviePlayer();
-	check(MoviePlayer);
+	check(!LoadingScreen);
+	if (LoadingScreen || !GetMoviePlayer())
+		return false;
 
-	const FNPLoadingScreenResources LoadingScreenResources =
+	const FNPLoadingScreenResources Resources =
 		UNPLoadingSettings::GetChecked()->GetLoadingScreenResources(ArtworkId);
-	SAssignNew(LoadingScreen, SNPLoadingScreen).Resources(LoadingScreenResources);
+	SAssignNew(LoadingScreen, SNPLoadingScreen).Resources(Resources);
+	const uint64 RequestId = ++LoadingRequestId;
+	LoadingScreen->OnLoadingScreenReady.BindWeakLambda(this, [this, RequestId](bool bSucceeded)
+	{
+		if (RequestId == LoadingRequestId)
+			HandleLoadingScreenReady(bSucceeded);
+	});
+	LoadingScreen->OnLoadingScreenFinished.BindWeakLambda(this, [this, RequestId]()
+	{
+		if (RequestId == LoadingRequestId)
+			HandleLoadingScreenFinished();
+	});
 
 	FLoadingScreenAttributes Attributes;
 	Attributes.WidgetLoadingScreen = LoadingScreen;
 	Attributes.bAutoCompleteWhenLoadingCompletes = false;
 	Attributes.bWaitForManualStop = true;
 	Attributes.bMoviesAreSkippable = false;
-
-	MoviePlayer->SetupLoadingScreen(Attributes);
-
-	LoadingScreen->OnLoadingScreenFinished.BindUObject(this, &UNPLoadingSubsystem::HandleLoadingScreenFinished);
+	// 로딩스크린 종료 대기 중에도 에셋 로딩 완료 콜백과 새 월드 초기화가 진행되도록 Tick 허용
+	Attributes.bAllowEngineTick = true;
+	GetMoviePlayer()->SetupLoadingScreen(Attributes);
+	return !LoadingScreen->HasResourceLoadFailed();
 }
 
-void UNPLoadingSubsystem::BeginLoadingScreen()
+void UNPLoadingSubsystem::BeginStageTransition(const TSoftObjectPtr<UWorld>& StageLevel,
+	FNPStageLevelLoadedDelegate OnLevelLoaded, bool bInAutoFinishScreen)
 {
-	IGameMoviePlayer* MoviePlayer = GetMoviePlayer();
-	check(MoviePlayer);
-	check(LoadingScreen);
+	check(!bTransitionRequested);
+	LevelLoadedDelegate = MoveTemp(OnLevelLoaded);
+	PendingLevel = StageLevel;
+	bAutoFinishScreen = bInAutoFinishScreen;
+	bTransitionRequested = true;
+	if (!LoadingScreen || StageLevel.IsNull() || LoadingScreen->HasResourceLoadFailed())
+	{
+		CompleteLevelLoading(nullptr, false);
+		return;
+	}
+	if (LoadingScreen->IsReady())
+		OpenPreparedLevel();
+}
 
-	MoviePlayer->PlayMovie();
+void UNPLoadingSubsystem::HandleLoadingScreenReady(bool bSucceeded)
+{
+	if (!bTransitionRequested)
+		return;
+	if (!bSucceeded)
+	{
+		CompleteLevelLoading(nullptr, false);
+		return;
+	}
+	OpenPreparedLevel();
+}
+
+void UNPLoadingSubsystem::OpenPreparedLevel()
+{
+	check(LoadingScreen && LoadingScreen->IsReady());
+	LoadingScreen->OnLoadingScreenReady.Unbind();
+	const FString PackageName = PendingLevel.ToSoftObjectPath().GetLongPackageName();
+	if (PackageName.IsEmpty())
+	{
+		CompleteLevelLoading(nullptr, false);
+		return;
+	}
+
+	// 레벨 이동 요청 전에 로딩 완료 및 실패 델리게이트 바인딩
+	PostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &ThisClass::HandlePostLoadMap);
+	if (GEngine)
+		TravelFailureHandle = GEngine->OnTravelFailure().AddUObject(this, &ThisClass::HandleTravelFailure);
+	IGameMoviePlayer* MoviePlayer = GetMoviePlayer();
+	MoviePlaybackStartedHandle = MoviePlayer->OnMoviePlaybackStarted().AddUObject(
+		this, &ThisClass::HandleMoviePlaybackStarted);
+	MoviePlaybackFinishedHandle = MoviePlayer->OnMoviePlaybackFinished().AddUObject(
+		this, &ThisClass::HandleMoviePlaybackFinished);
 	LoadingScreen->StartLoadingScreen();
+	// 재생은 엔진의 PreLoadMap에 맡겨 일반 프레임과 로딩 렌더링이 겹치지 않게 한다.
+	UGameplayStatics::OpenLevel(this, FName(*PackageName));
+}
+
+void UNPLoadingSubsystem::HandleMoviePlaybackStarted()
+{
+	bScreenPlaying = true;
+}
+
+void UNPLoadingSubsystem::HandlePostLoadMap(UWorld* LoadedWorld)
+{
+	if (LoadedWorld && LoadedWorld->GetGameInstance() != GetGameInstance())
+		return;
+	CompleteLevelLoading(LoadedWorld, IsValid(LoadedWorld));
+}
+
+void UNPLoadingSubsystem::HandleTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error)
+{
+	if (World && World->GetGameInstance() != GetGameInstance())
+		return;
+	UE_LOG(LogTemp, Error, TEXT("Stage 레벨 이동에 실패했습니다. 사유: [%s]"), *Error);
+	CompleteLevelLoading(nullptr, false);
+}
+
+void UNPLoadingSubsystem::CompleteLevelLoading(UWorld* LoadedWorld, bool bSucceeded)
+{
+	RemoveTravelDelegates();
+	bTransitionRequested = false;
+	const bool bShouldAutoFinish = bAutoFinishScreen;
+	FNPStageLevelLoadedDelegate Callback = MoveTemp(LevelLoadedDelegate);
+	LevelLoadedDelegate.Unbind();
+	Callback.ExecuteIfBound(LoadedWorld, bSucceeded);
+	if (bShouldAutoFinish && !bFinishRequested && LoadingScreen)
+		RequestFinishLoadingScreen(FSimpleDelegate());
+}
+
+void UNPLoadingSubsystem::RequestFinishLoadingScreen(FSimpleDelegate OnFinished)
+{
+	check(!bFinishRequested);
+	bFinishRequested = true;
+	ScreenFinishedDelegate = MoveTemp(OnFinished);
+	if (!LoadingScreen || !bScreenPlaying)
+	{
+		HandleMoviePlaybackFinished();
+		return;
+	}
+	LoadingScreen->BeginFinishLoadingScreen();
 }
 
 void UNPLoadingSubsystem::HandleLoadingScreenFinished()
 {
-	IGameMoviePlayer* MoviePlayer = GetMoviePlayer();
-	check(MoviePlayer);
+	// 로딩스크린 연출은 종료됐지만 MoviePlayer가 아직 위젯을 보유하고 있으므로 재생 종료 요청
+	if (bFinishRequested && bScreenPlaying)
+		GetMoviePlayer()->StopMovie();
+}
 
-	MoviePlayer->StopMovie();
+void UNPLoadingSubsystem::HandleMoviePlaybackFinished()
+{
+	bScreenPlaying = false;
+	if (!bFinishRequested)
+		return;
+	FSimpleDelegate Callback = MoveTemp(ScreenFinishedDelegate);
+	ScreenFinishedDelegate.Unbind();
+	ResetLoadingScreen();
+	Callback.ExecuteIfBound();
+}
 
-	if (LoadingScreen.IsValid())
+void UNPLoadingSubsystem::RemoveTravelDelegates()
+{
+	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapHandle);
+	PostLoadMapHandle.Reset();
+	if (GEngine)
+		GEngine->OnTravelFailure().Remove(TravelFailureHandle);
+	TravelFailureHandle.Reset();
+}
+
+void UNPLoadingSubsystem::ResetLoadingScreen()
+{
+	++LoadingRequestId;
+	RemoveTravelDelegates();
+	if (IGameMoviePlayer* MoviePlayer = GetMoviePlayer())
+	{
+		MoviePlayer->OnMoviePlaybackStarted().Remove(MoviePlaybackStartedHandle);
+		MoviePlaybackStartedHandle.Reset();
+		MoviePlayer->OnMoviePlaybackFinished().Remove(MoviePlaybackFinishedHandle);
+		MoviePlaybackFinishedHandle.Reset();
+		MoviePlayer->SetupLoadingScreen(FLoadingScreenAttributes());
+	}
+	if (LoadingScreen)
 	{
 		LoadingScreen->Shutdown();
 		LoadingScreen.Reset();
 	}
+	PendingLevel.Reset();
+	LevelLoadedDelegate.Unbind();
+	bTransitionRequested = false;
+	bScreenPlaying = false;
+	bAutoFinishScreen = false;
+	bFinishRequested = false;
+}
+
+void UNPLoadingSubsystem::CancelStageLoading()
+{
+	++LoadingRequestId;
+	RemoveTravelDelegates();
+	LevelLoadedDelegate.Unbind();
+	ScreenFinishedDelegate.Unbind();
+	if (bScreenPlaying && GetMoviePlayer())
+	{
+		GetMoviePlayer()->OnMoviePlaybackFinished().Remove(MoviePlaybackFinishedHandle);
+		GetMoviePlayer()->StopMovie();
+		// Slate 리소스 정리 전에 로딩 렌더링 종료까지 대기
+		GetMoviePlayer()->WaitForMovieToFinish();
+	}
+	ResetLoadingScreen();
+}
+
+void UNPLoadingSubsystem::SetLoadingDisplayData(const FNPLoadingDisplayData& DisplayData)
+{
+	check(IsInGameThread());
+	if (LoadingScreen)
+		LoadingScreen->SetLoadingDisplayData(DisplayData);
 }

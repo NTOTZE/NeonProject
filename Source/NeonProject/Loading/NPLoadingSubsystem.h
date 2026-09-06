@@ -1,14 +1,16 @@
-// Fill out your copyright notice in the Description page of Project Settings.
-
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/EngineBaseTypes.h"
+#include "Engine/StreamableManager.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Utility/NPMacros.h"
 #include "NPLoadingSubsystem.generated.h"
 
-struct FStreamableHandle;
 class SNPLoadingScreen;
+struct FNPLoadingDisplayData;
+
+DECLARE_DELEGATE_TwoParams(FNPStageLevelLoadedDelegate, UWorld*, bool);
 
 UCLASS()
 class NEONPROJECT_API UNPLoadingSubsystem : public UGameInstanceSubsystem
@@ -17,19 +19,42 @@ class NEONPROJECT_API UNPLoadingSubsystem : public UGameInstanceSubsystem
 	NP_DECLARE_GAMEINSTANCE_SUBSYSTEM_GETTER()
 
 public:
-	// 매개변수로 Stage 데이터와 파티멤버, 몬스터 등 로딩에 필요한 정보를 받아야함
-	void PrepareStageLoading();
-	void BeginStageTransition(const TSoftObjectPtr<UWorld>& StageLevel);
+	virtual void Deinitialize() override;
 
+	TSharedPtr<FStreamableHandle> LoadAssets(
+		const TArray<FSoftObjectPath>& AssetPaths, FStreamableDelegate OnLoaded);
+	bool PrepareStageLoading(const FName& ArtworkId = TEXT("Default"));
+	void BeginStageTransition(const TSoftObjectPtr<UWorld>& StageLevel,
+		FNPStageLevelLoadedDelegate OnLevelLoaded, bool bAutoFinishScreen = false);
+	void RequestFinishLoadingScreen(FSimpleDelegate OnFinished);
+	void CancelStageLoading();
+	void SetLoadingDisplayData(const FNPLoadingDisplayData& DisplayData);
+	bool IsStageTransitionPending() const { return bTransitionRequested; }
 
 private:
-	void PrepareLoadingScreen(const FName& ArtworkId);
-	void BeginLoadingScreen();
+	void HandleLoadingScreenReady(bool bSucceeded);
+	void OpenPreparedLevel();
+	void HandlePostLoadMap(UWorld* LoadedWorld);
+	void HandleTravelFailure(UWorld* World, ETravelFailure::Type FailureType, const FString& Error);
+	void CompleteLevelLoading(UWorld* LoadedWorld, bool bSucceeded);
 	void HandleLoadingScreenFinished();
-
+	void HandleMoviePlaybackStarted();
+	void HandleMoviePlaybackFinished();
+	void RemoveTravelDelegates();
+	void ResetLoadingScreen();
 
 private:
 	TSharedPtr<SNPLoadingScreen> LoadingScreen;
-
+	TSoftObjectPtr<UWorld> PendingLevel;
+	FNPStageLevelLoadedDelegate LevelLoadedDelegate;
+	FSimpleDelegate ScreenFinishedDelegate;
+	FDelegateHandle PostLoadMapHandle;
+	FDelegateHandle TravelFailureHandle;
 	FDelegateHandle MoviePlaybackFinishedHandle;
+	FDelegateHandle MoviePlaybackStartedHandle;
+	uint64 LoadingRequestId = 0;
+	bool bTransitionRequested = false;
+	bool bScreenPlaying = false;
+	bool bAutoFinishScreen = false;
+	bool bFinishRequested = false;
 };

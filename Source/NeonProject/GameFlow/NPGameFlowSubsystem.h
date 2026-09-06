@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "InstancedStruct.h"
+#include "DataType/NPScreenTypes.h"
 #include "Utility/NPMacros.h"
 #include "NPGameFlowSubsystem.generated.h"
 
@@ -24,8 +25,6 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
-private:
-	void HandlePostLoadMapWithWorld(UWorld* LoadedWorld);
 
 public:
 	bool RequestExecuteCommand(const FNPGameFlowCommand& InCommand);
@@ -43,6 +42,10 @@ private:
 	void PrepareExecuteHandler(const TSharedPtr<const TInstancedStruct<FNPGameFlowHandlerDataBase>>& InHandlerData);
 	void StartCommandExecution();
 	void ExecuteActiveHandler();
+	void HandleCommandFadeOutFinished(ENPFadeAnimationType FadeType);
+	void BeginCommandFinalization();
+	void HandleCommandFadeInFinished(ENPFadeAnimationType FadeType);
+	void OnCommandFinished();
 
 	void HandleActiveHandlerFinished(const UNPGameFlowHandlerBase* FinishedHandler, bool bCompleted);
 
@@ -51,6 +54,7 @@ private:
 	TObjectPtr<UNPGameFlowHandlerBase> ActiveHandler;
 
 	TSharedPtr<const FNPGameFlowCommandOptions> ActiveCommandOptions;
+	bool bFinalizingCommand = false;
 	TQueue<const FNPGameFlowCommand> PendingCommandQueue;
 
 	UPROPERTY(Transient)

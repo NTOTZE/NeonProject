@@ -33,7 +33,7 @@ protected:
 	virtual bool ExecuteInputCommand(FNPInputCommand Command) override;
 
 public:	// Party
-	void SpawnAndInitParty(FTransform SpawnTransform, float SpawnDelay);
+	void SpawnAndInitParty(FTransform SpawnTransform, float SpawnDelay, const TArray<FName>& PartyCharacterIds);
 	void BeginSpawnCharacter();
 	void HandleMemberStateChange(ENPCharacterState Flags, bool bValue, int32 idx);
 
@@ -71,6 +71,7 @@ public:
 private:	// Input
 	UFUNCTION() 
 	void HandlePossessedPawnChanged(APawn* PrevPawn, APawn* NextPawn);
+	void HandleStageSessionReady();
 
 
 public:
@@ -121,6 +122,7 @@ protected:
 
 	FTimerHandle TimerHandle_Spawn;
 	FTimerHandle TimerHandle_Dilation;
+	bool bPartyInitialized = false;
 
 	friend class ANPPlayerCharacterBase;
 };

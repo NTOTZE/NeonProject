@@ -19,7 +19,8 @@ class NEONPROJECT_API UNPGameDataSubsystem : public UGameInstanceSubsystem
 	NP_DECLARE_GAMEINSTANCE_SUBSYSTEM_GETTER()
 
 public:
-	UNPGameDataSubsystem();
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	const UDataTable* GetBattleStageDataTable() const { return BattleStageDataTable; }
 
 	template<typename T>
 	static const T* GetGameData(const UObject* WorldContext, FName id)

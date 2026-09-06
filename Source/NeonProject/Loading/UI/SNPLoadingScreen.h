@@ -5,19 +5,27 @@
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Loading/UI/NPLoadingScreenResources.h"
+#include "Loading/NPLoadingDisplayData.h"
 #include "Utility/NPInputBlockMacros.h"
 
 class UTexture2D;
 class SOverlay;
+class SVerticalBox;
+class STextBlock;
 class FNPInputBlockProcessor;
 struct FStreamableHandle;
 
-DECLARE_DELEGATE(FNPLoadingScreenReadyDelegate);
+DECLARE_DELEGATE_OneParam(FNPLoadingScreenReadyDelegate, bool);
 DECLARE_DELEGATE(FNPLoadingScreenFinishedDelegate);
 
 class NEONPROJECT_API SNPLoadingScreen : public SCompoundWidget
 {
 	NP_SLATE_BLOCK_ALL_INPUT()
+
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FNPLoadingScreenFadeTest;
+	friend class FNPLoadingDisplaySnapshotTest;
+#endif
 
 public:
 	SLATE_BEGIN_ARGS(SNPLoadingScreen)
@@ -42,11 +50,15 @@ public:
 	void FinishLoadingScreen();
 
 	void SetLoadingProgress(float InProgress);
-	bool IsReady() { return bIsReady; }
+	void SetLoadingDisplayData(const FNPLoadingDisplayData& DisplayData);
+	bool IsReady() const { return bIsReady; }
+	bool HasResourceLoadFailed() const { return bResourceLoadFailed; }
+	virtual void Tick(const FGeometry& AllottedGeometry, double CurrentTime, float DeltaTime) override;
 
 private:
 	void AsyncLoadResources();
 	void HandleResourcesLoaded();
+	void ApplyPendingDisplayData();
 
 	void PlayFadeIn();
 	void PlayFadeOut();
@@ -54,8 +66,6 @@ private:
 	TOptional<float> GetLoadingProgress() const;
 	FText GetLoadingProgressText() const;
 
-	EActiveTimerReturnType HandleFadeInTimer(double CurrentTime, float DeltaTime);
-	EActiveTimerReturnType HandleFadeOutTimer(double CurrentTime, float DeltaTime);
 	
 public:
 	FNPLoadingScreenReadyDelegate OnLoadingScreenReady;
@@ -63,6 +73,14 @@ public:
 
 private:
 	TSharedPtr<SOverlay> LoadingContent;
+	TSharedPtr<SVerticalBox> AssetList;
+	TSharedPtr<STextBlock> LoadingStatusText;
+
+	// 게임 스레드에서 받은 데이터를 잠금 안에서 복사하고 위젯 변경은 Slate Tick에서 처리
+	FCriticalSection DisplayDataMutex;
+	FNPLoadingDisplayData PendingDisplayData;
+	FNPLoadingDisplayData DisplayData;
+	bool bDisplayDataPending = false;
 	TSharedPtr<FStreamableHandle> LoadingScreenAssetHandle;
 
 	FSlateBrush ArtworkBrush;
@@ -73,21 +91,17 @@ private:
 
 
 private:
-	FCurveSequence FadeInSequence;
-	FCurveHandle FadeInCurveHandle;
-
-	FCurveSequence FadeOutSequence;
-	FCurveHandle FadeOutCurveHandle;
-
-	TSharedPtr<FActiveTimerHandle> FadeTimerHandle;
+	float FadeElapsedTime = 0.f;
 
 	static constexpr float FadeDuration = 0.5f;
 
-	float LoadingProgress = 0.0f;
+	TAtomic<float> LoadingProgress { 0.0f };
 
 	bool bIsReady = false;
 
-	bool bFinishRequested = false;
+	TAtomic<bool> bFinishRequested { false };
+	bool bResourceLoadFailed = false;
+	bool bPlatformCursorHidden = false;
 
 private:
 	enum class ELoadingScreenState : uint8

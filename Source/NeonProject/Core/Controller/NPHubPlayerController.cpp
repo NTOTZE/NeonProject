@@ -12,11 +12,16 @@
 #include "DataType/NPStageData.h"
 #include "GameFlow/NPGameFlowSubsystem.h"
 #include "GameFlow/Handler/NPEnterStageHandler.h"
+#include "Loading/NPStageSessionSubsystem.h"
+#include "DataType/NPCharacterData.h"
+#include "GameData/NPGameDataSubsystem.h"
+#include "Character/NPCharacterBase.h"
 
 #include "Blueprint/UserWidget.h"
 #include "EnhancedInputComponent.h"
 #include "InputMappingContext.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/GameModeBase.h"
 
 ANPHubPlayerController::ANPHubPlayerController()
 {
@@ -57,6 +62,49 @@ void ANPHubPlayerController::BeginPlay()
 	{
 		InteractionComp->OnInteractableActorsChanged.AddUObject(this, &ANPHubPlayerController::OnInteractableActorsChanged);
 	}
+
+	UNPStageSessionSubsystem* StageSession = GetWorld()->GetSubsystem<UNPStageSessionSubsystem>();
+	check(StageSession);
+	StageSession->OnSessionReady.AddUObject(this, &ThisClass::HandleStageSessionReady);
+	if (StageSession->IsSessionInitialized())
+		HandleStageSessionReady();
+}
+
+void ANPHubPlayerController::HandleStageSessionReady()
+{
+	if (bHubCharacterSpawned)
+		return;
+
+	const UNPStageSessionSubsystem* StageSession = GetWorld()->GetSubsystem<UNPStageSessionSubsystem>();
+	check(StageSession);
+	const TArray<FName>& PartyCharacterIds = StageSession->GetSessionData().PartyCharacterIds;
+	if (PartyCharacterIds.IsEmpty())
+	{
+		NP_LOG(NPLog, Warning, TEXT("허브 스폰에 사용할 파티 캐릭터 ID가 설정되어 있지 않습니다."));
+		return;
+	}
+
+	const FName CharacterId = PartyCharacterIds[0];
+	const FNPCharacterData* CharacterData = UNPGameDataSubsystem::GetGameData<FNPCharacterData>(this, CharacterId);
+	UClass* CharacterClass = CharacterData ? CharacterData->CharacterClass.Get() : nullptr;
+	if (!CharacterClass || !CharacterClass->IsChildOf(ANPCharacterBase::StaticClass()))
+	{
+		NP_LOG(NPLog, Warning, TEXT("허브 캐릭터 [%s]의 클래스가 유효하지 않습니다."), *CharacterId.ToString());
+		return;
+	}
+
+	AGameModeBase* GameMode = GetWorld()->GetAuthGameMode();
+	AActor* StartPoint = GameMode ? GameMode->FindPlayerStart(this) : nullptr;
+	const FTransform SpawnTransform = StartPoint ? StartPoint->GetActorTransform() : FTransform::Identity;
+	ANPCharacterBase* HubCharacter = GetWorld()->SpawnActor<ANPCharacterBase>(CharacterClass, SpawnTransform);
+	if (!HubCharacter)
+	{
+		NP_LOG(NPLog, Warning, TEXT("허브 캐릭터 [%s] 스폰에 실패했습니다."), *CharacterId.ToString());
+		return;
+	}
+
+	Possess(HubCharacter);
+	bHubCharacterSpawned = true;
 }
 
 void ANPHubPlayerController::SetDialogueData(const UNPDialogueDataAsset* DialogueDA)
@@ -160,9 +208,22 @@ void ANPHubPlayerController::HandleEscapeInput()
 {
 	Super::HandleEscapeInput();
 
+
+	TArray<FName> PartyCharacterIds;
+	PartyCharacterIds.Reserve(3);
+	PartyCharacterIds.Add(TEXT("Player0001"));
+	PartyCharacterIds.Add(TEXT("Player0002"));
+	PartyCharacterIds.Add(TEXT("Player0003"));
+
+	TArray<FName> MonsterIds;
+	MonsterIds.Add(TEXT("Monster0001"));
+	MonsterIds.Add(TEXT("Monster0002"));
+	MonsterIds.Add(TEXT("Monster0003"));
+	
+	
 	FNPGameFlowCommand EnterStageCommand = FNPGameFlowCommand::Make(
-		FNPGameFlowCommandOptions::Make(true, true, 1.f),
-		FNPEnterStageHandlerData::Make(ENPStageType::Battle, TEXT("Battle0001"))
+		FNPGameFlowCommandOptions::Make(false, true, 1.f),
+		FNPEnterStageHandlerData::Make(ENPStageType::Battle, TEXT("Battle0001"), PartyCharacterIds, MonsterIds)
 	);
 	UNPGameFlowSubsystem::GetChecked(this)->RequestExecuteCommand(EnterStageCommand);
 }

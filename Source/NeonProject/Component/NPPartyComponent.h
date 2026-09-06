@@ -25,7 +25,7 @@ protected:
 
 public:
     UFUNCTION(BlueprintCallable, Category = "Party")
-    void InitParty(APlayerController* PC, const FTransform& Transform);
+	void InitParty(APlayerController* PC, const FTransform& Transform, const TArray<FName>& PartyCharacterIds);
 
     UFUNCTION(BlueprintCallable, Category = "Party")
     bool SwapNext(APlayerController* PC);
@@ -66,9 +66,6 @@ private:
 
 public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Party")
-    TArray<TSubclassOf<class ANPBattlePlayerCharacter>> PartyClasses;
-
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Party")
     FVector SwapLocationOffset = FVector(0.f, 200.f, 0.f);
 
 private:
@@ -77,7 +74,7 @@ private:
     TArray<ANPBattlePlayerCharacter*> PartyMembers;
 
     UPROPERTY(Transient)
-    TArray<class UNPCharacterStatComponent*> StatComponents;
+	TArray<class UNPCharacterStatComponent*> StatComponents;
 
     /** 현재 조종 중인 인덱스 (없으면 -1) */
     int32 CurrentIndex = INDEX_NONE;

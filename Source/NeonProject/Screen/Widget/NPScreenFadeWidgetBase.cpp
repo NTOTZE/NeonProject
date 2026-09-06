@@ -35,6 +35,36 @@ void UNPScreenFadeWidgetBase::NativeDestruct()
 
 bool UNPScreenFadeWidgetBase::PlayFade(ENPFadeAnimationType fadeAnimationType, float fadeDuration, float fadeStartDelay)
 {
+	if (fadeDuration <= 0.f)
+	{
+		if (!FadeImage || (fadeAnimationType != ENPFadeAnimationType::FadeIn
+			&& fadeAnimationType != ENPFadeAnimationType::FadeOut))
+			return false;
+		if (IsPlayingAnimation() || (GetWorld() && GetWorld()->GetTimerManager().IsTimerActive(FadeDelayTimer)))
+			return false;
+		auto ApplyInstantFade = [this, fadeAnimationType]()
+		{
+			if (!IsInViewport())
+				AddToViewport(ZOrder);
+			FadeImage->SetRenderOpacity(fadeAnimationType == ENPFadeAnimationType::FadeOut ? 1.f : 0.f);
+			if (fadeAnimationType == ENPFadeAnimationType::FadeIn)
+				RemoveFromParent();
+			FNPFadeAnimationFinishedDelegate Callback = OnFadeAnimationFinished;
+			Callback.ExecuteIfBound(fadeAnimationType);
+		};
+		if (fadeStartDelay > 0.f)
+		{
+			if (!GetWorld())
+				return false;
+			GetWorld()->GetTimerManager().SetTimer(FadeDelayTimer,
+				FTimerDelegate::CreateWeakLambda(this, MoveTemp(ApplyInstantFade)), fadeStartDelay, false);
+		}
+		else
+		{
+			ApplyInstantFade();
+		}
+		return true;
+	}
 	return PlayWidgetAnimation(fadeAnimationType, fadeDuration, fadeStartDelay);
 }
 

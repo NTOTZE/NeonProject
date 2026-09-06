@@ -2,19 +2,20 @@
 
 
 #include "GameData/NPGameDataSubsystem.h"
-#include "NeonProject.h"
 #include "DataType/NPStageData.h"
 #include "DataType/NPCharacterData.h"
+#include "GameData/NPGameDataSettings.h"
 
-UNPGameDataSubsystem::UNPGameDataSubsystem()
+void UNPGameDataSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
-	static ConstructorHelpers::FObjectFinder<UDataTable> BattleStageDataTableFinder(
-		TEXT("/Script/Engine.DataTable'/Game/NeonProject/Blueprint/DataTable/DT_BattleStage.DT_BattleStage'"));
-	check(BattleStageDataTableFinder.Succeeded());
-	BattleStageDataTable = BattleStageDataTableFinder.Object;
+	Super::Initialize(Collection);
 
-	static ConstructorHelpers::FObjectFinder<UDataTable> CharacterDataTableFinder(
-		TEXT("/Script/Engine.DataTable'/Game/NeonProject/Blueprint/DataTable/DT_Character.DT_Character'"));
-	check(CharacterDataTableFinder.Succeeded());
-	CharacterDataTable = CharacterDataTableFinder.Object;
+	const UNPGameDataSettings* Settings = UNPGameDataSettings::GetChecked();
+	HubStageDataTable = Settings->GetHubStageDataTable();
+	BattleStageDataTable = Settings->GetBattleStageDataTable();
+	CharacterDataTable = Settings->GetCharacterDataTable();
+
+	checkf(HubStageDataTable, TEXT("Game Data Settings에 HubStageDataTable이 설정되어 있지 않습니다."));
+	checkf(BattleStageDataTable, TEXT("Game Data Settings에 BattleStageDataTable이 설정되어 있지 않습니다."));
+	checkf(CharacterDataTable, TEXT("Game Data Settings에 CharacterDataTable이 설정되어 있지 않습니다."));
 }

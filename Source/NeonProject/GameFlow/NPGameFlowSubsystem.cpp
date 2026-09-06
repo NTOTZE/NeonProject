@@ -3,6 +3,8 @@
 
 #include "GameFlow/NPGameFlowSubsystem.h"
 #include "NeonProject.h"
+#include "Screen/NPScreenSubsystem.h"
+#include "Containers/Ticker.h"
 
 #include "Kismet/GameplayStatics.h"
 #include "DataType/NPStageData.h"
@@ -28,23 +30,20 @@ void UNPGameFlowSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		RuntimeHandlerMap.Add(HandlerData, HandlerClass);
 	}
 
-	FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
-		this,
-		&UNPGameFlowSubsystem::HandlePostLoadMapWithWorld
-	);
 }
 
 void UNPGameFlowSubsystem::Deinitialize()
 {
-	FCoreUObjectDelegates::PostLoadMapWithWorld.RemoveAll(this);
-
+	UNPScreenSubsystem::GetChecked(this)->OnFadeFinished.Unbind();
+	if (ActiveHandler)
+	{
+		ActiveHandler->OnGameFlowHandlerFinished.Unbind();
+		ActiveHandler->Abort();
+	}
+	ActiveHandler = nullptr;
+	ActiveCommandOptions.Reset();
+	bFinalizingCommand = false;
 	Super::Deinitialize();
-}
-
-void UNPGameFlowSubsystem::HandlePostLoadMapWithWorld(UWorld* LoadedWorld)
-{
-	NP_LOG(NPLog, Warning, TEXT(""));
-
 }
 
 bool UNPGameFlowSubsystem::RequestExecuteCommand(const FNPGameFlowCommand& InCommand)
@@ -149,14 +148,20 @@ void UNPGameFlowSubsystem::StartCommandExecution()
 	checkf(ActiveCommandOptions.IsValid(), TEXT("[%s]가 nullptr 입니다. [%s] 호출 전에 [%s]를 호출해야 합니다."),
 		NP_NAMEOF(ActiveCommandOptions), LOG_CALLINFO, NP_NAMEOF(PrepareCommandOptions));
 
-	if (!ActiveCommandOptions->bUseFade)
+	UNPScreenSubsystem* Screen = UNPScreenSubsystem::GetChecked(this);
+	Screen->OnFadeFinished.BindUObject(this, &ThisClass::HandleCommandFadeOutFinished);
+	const float Duration = ActiveCommandOptions->bUseFade ? ActiveCommandOptions->FadeDuration : 0.f;
+	if (!Screen->PlayFadeOut(Duration, 0.f))
 	{
-		ExecuteActiveHandler();
-		return;
+		Screen->OnFadeFinished.Unbind();
+		ActiveHandler->OnGameFlowHandlerFinished.BindUObject(this, &ThisClass::HandleActiveHandlerFinished);
+		ActiveHandler->Abort();
 	}
+}
 
-	// Fade완료 델리게이트에 ExecuteActiveHandler 바인딩
-	//ExecuteActiveHandler 내부에서 바인딩 해제
+void UNPGameFlowSubsystem::HandleCommandFadeOutFinished(ENPFadeAnimationType FadeType)
+{
+	ExecuteActiveHandler();
 }
 
 void UNPGameFlowSubsystem::ExecuteActiveHandler()
@@ -175,8 +180,40 @@ void UNPGameFlowSubsystem::HandleActiveHandlerFinished(const UNPGameFlowHandlerB
 	checkf(ActiveHandler == FinishedHandler, TEXT("[%s]가 [%s]와 일치하지 않습니다."), NP_NAMEOF(FinishedHandler), NP_NAMEOF(ActiveHandler));
 
 	ActiveHandler->OnGameFlowHandlerFinished.Unbind();
-	
-	//...
+	if (!bCompleted)
+		UE_LOG(LogTemp, Warning, TEXT("GameFlowHandler [%s] 실행에 실패했습니다."), *GetNameSafe(FinishedHandler));
+	BeginCommandFinalization();
+}
 
+void UNPGameFlowSubsystem::BeginCommandFinalization()
+{
+	bFinalizingCommand = true;
+	UNPScreenSubsystem* Screen = UNPScreenSubsystem::GetChecked(this);
+	Screen->OnFadeFinished.BindUObject(this, &ThisClass::HandleCommandFadeInFinished);
+	const float Duration = ActiveCommandOptions->bUseFade ? ActiveCommandOptions->FadeDuration : 0.f;
+	if (!Screen->PlayFadeIn(Duration, 0.f))
+	{
+		Screen->OnFadeFinished.Unbind();
+		// FadeIn 재생에 실패한 경우 즉시 검은 화면 제거
+		Screen->PlayFadeIn(0.f, 0.f);
+		HandleCommandFadeInFinished(ENPFadeAnimationType::FadeIn);
+	}
+}
+
+void UNPGameFlowSubsystem::HandleCommandFadeInFinished(ENPFadeAnimationType FadeType)
+{
+	// 0초 Fade는 Finish 호출 중 완료될 수 있으므로, Cleanup 종료 후 커맨드 정리
+	FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateWeakLambda(this, [this](float)
+	{
+		if (bFinalizingCommand)
+			OnCommandFinished();
+		return false;
+	}));
+}
+
+void UNPGameFlowSubsystem::OnCommandFinished()
+{
 	ActiveHandler = nullptr;
+	ActiveCommandOptions.Reset();
+	bFinalizingCommand = false;
 }

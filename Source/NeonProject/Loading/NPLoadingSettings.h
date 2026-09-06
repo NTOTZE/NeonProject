@@ -6,6 +6,7 @@
 #include "Engine/DeveloperSettings.h"
 #include "Utility/NPMacros.h"
 #include "Loading/UI/NPLoadingScreenResources.h"
+#include "UI/Start/NPStartWidget.h"
 #include "NPLoadingSettings.generated.h"
 
 class UTexture2D;
@@ -17,6 +18,11 @@ class NEONPROJECT_API UNPLoadingSettings : public UDeveloperSettings
 	NP_DECLARE_SETTINGS()
 
 public:
+	TSubclassOf<UNPStartWidget> GetStartWidgetClass() const
+	{
+		return StartWidgetClass.LoadSynchronous();
+	}
+
 	FNPLoadingScreenResources GetLoadingScreenResources(const FName& Id) const
 	{
 		LoadingScreenResources.CheckPath();
@@ -31,6 +37,10 @@ public:
 	}
 
 private:
+	/// @brief 시작 화면에서 사용할 위젯 클래스입니다.
+	UPROPERTY(EditAnywhere, Config, Category = "Loading Screen")
+	TSoftClassPtr<UNPStartWidget> StartWidgetClass;
+
 	/// @brief 로딩 스크린을 구성하는 리소스. 
 	UPROPERTY(EditAnywhere, Config, Category = "Loading Screen")
 	FNPLoadingScreenResources LoadingScreenResources;
