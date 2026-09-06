@@ -5,6 +5,7 @@
 #include "NeonProject.h"
 
 #include "Components/CapsuleComponent.h"
+#include "Component/NPCharacterStatComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "NiagaraFunctionLibrary.h"
 #include "NiagaraSystem.h"
@@ -17,6 +18,7 @@ ANPCharacterBase::ANPCharacterBase()
 	PrimaryActorTick.bCanEverTick = false;
 
 	WeaponMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMesh"));
+	StatComponent = CreateDefaultSubobject<UNPCharacterStatComponent>(TEXT("StatComponent"));
 
 	GetCapsuleComponent()->SetCapsuleHalfHeight(90.f);
 	GetMesh()->SetRelativeLocation(FVector(0.f, 0.f, -90.f));
@@ -34,10 +36,8 @@ void ANPCharacterBase::BeginPlay()
 {
 	Super::BeginPlay();
 
-	CurrentHP = MaxHP;
 	State = static_cast<ENPCharacterState>(0);
 
-	GetMesh()->GetAnimInstance()->OnMontageBlendingOut.AddDynamic(this, &ANPCharacterBase::OnMontageBlendingOut);
 	OnTakeAnyDamage.AddDynamic(this, &ANPCharacterBase::HandleTakeAnyDamage);
 }
 
@@ -51,11 +51,6 @@ void ANPCharacterBase::Tick(float DeltaTime)
 void ANPCharacterBase::HandleTakeAnyDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType, AController* InstigatedBy, AActor* DamageCauser)
 {
 	TryPlayHitReaction(Damage);
-}
-
-void ANPCharacterBase::OnMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
-{
-
 }
 
 void ANPCharacterBase::TryPlayHitReaction(float Damage)
@@ -107,21 +102,20 @@ void ANPCharacterBase::TryPlayAttackImpactEffect(AActor* DamageActor, AActor* Ta
 
 float ANPCharacterBase::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-	if (CurrentHP <= 0.f)
+	const float ActualDamage = StatComponent->ApplyDamage(DamageAmount);
+	if (ActualDamage <= KINDA_SMALL_NUMBER)
 		return 0.f;
 
-	const float Applied = FMath::Max(0.f, DamageAmount);
-	const float NewHP = FMath::Clamp(CurrentHP - Applied, 0.f, MaxHP);
-	SetHP(NewHP);
+	const FNPResourceStat& HpStat = StatComponent->GetResourceStat(ENPResourceStatType::Hp);
 
-	BP_OnDamaged(CurrentHP, Applied, DamageCauser);
+	BP_OnDamaged(HpStat.CurrentValue, ActualDamage, DamageCauser);
 
-	if (CurrentHP <= 0.f)
+	if (HpStat.CurrentValue <= KINDA_SMALL_NUMBER)
 		Die();
 
-	NP_LOG(NPLog, Warning, TEXT("%f"), Applied);
+	NP_LOG(NPLog, Warning, TEXT("%f"), ActualDamage);
 	
-	const float SuperReturned = Super::TakeDamage(Applied, DamageEvent, EventInstigator, DamageCauser);
+	const float SuperReturned = Super::TakeDamage(ActualDamage, DamageEvent, EventInstigator, DamageCauser);
 	
 	return SuperReturned;
 }
@@ -222,8 +216,6 @@ void ANPCharacterBase::PlayDissolve(bool bAppear, float Duration)
 	GetWorldTimerManager().SetTimer(TimerHandle_Dissolve, this, &ANPCharacterBase::DissolveTimerCallback, 0.02f, true);
 }
 
-
-
 void ANPCharacterBase::BeginDeathDissolve()
 {
 	RemoveState(ENPCharacterState::Active);
@@ -269,12 +261,3 @@ bool ANPCharacterBase::HasAllState(ENPCharacterState flags)
 {
 	return EnumHasAllFlags(State, flags);
 }
-
-void ANPCharacterBase::SetHP(float NewHP)
-{
-	const float OldHP = CurrentHP;
-	CurrentHP = FMath::Clamp(NewHP, 0.f, MaxHP);
-
-	OnHPChange.Broadcast(OldHP, CurrentHP);
-}
-

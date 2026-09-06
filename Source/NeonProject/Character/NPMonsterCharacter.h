@@ -31,7 +31,7 @@ public:
 	virtual AActor* GetTarget() override;
 
 private:
-	void OnHPChanged(float OldHP, float NewHP);
+	void OnResourceStatChanged(ENPResourceStatType Type, float current, float max);
 
 private:
 	UPROPERTY(EditAnywhere, Category = "NP|UI", meta = (AllowPrivateAccess = "true"))

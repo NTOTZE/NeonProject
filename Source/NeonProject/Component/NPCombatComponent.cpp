@@ -3,8 +3,11 @@
 
 #include "Component/NPCombatComponent.h"
 #include "NeonProject.h"
-#include "Character/NPPlayerCharacter.h"
-#include "Core/Controller/NPPlayerController.h"
+#include "Character/Player/NPPlayerCharacterBase.h"
+#include "Core/Controller/NPBattlePlayerController.h"
+#include "Component/NPCharacterStatComponent.h"
+#include "Combat/Cutscene/NPSkillCutsceneSubsystem.h"
+#include "Interface/NPTargetingInterface.h"
 
 #include "Engine/OverlapResult.h"
 #include "Animation/AnimInstance.h"
@@ -17,14 +20,46 @@ UNPCombatComponent::UNPCombatComponent()
 {
 	// Set this component to be initialized when the game starts, and to be ticked every frame.  You can turn these features
 	// off to improve performance if you don't need them.
-	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = true;
 
 	// ...
 }
 
-void UNPCombatComponent::InitializeCombat(ANPPlayerCharacter* InOwnerCharacter)
+void UNPCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	if (!OwnerCharacter) 
+		return;
+
+	FVector CurrentLocation = OwnerCharacter->GetActorLocation();
+
+	if (CurrentSkill != ENPAbilityType::None)
+		if (AActor* Target = OwnerCharacter->GetTarget())
+			if (const UNPSkillData* CurrentData = FindAbility(CurrentSkill))
+				if (CurrentData->bAutoTarget)
+				{
+					const FVector TargetLocation = Target->GetActorLocation();
+					double PrevDist = FVector::Dist2D(TargetLocation, PrevLocation);
+					double CurrentDist = FVector::Dist2D(TargetLocation, CurrentLocation);
+					const double TestRange = 250;
+					if (CurrentDist <= TestRange)
+					{
+						if (CurrentDist < PrevDist)
+						{
+							OwnerCharacter->SetActorLocation(PrevLocation);
+							CurrentLocation = PrevLocation;
+						}
+					}
+				}
+
+	PrevLocation = CurrentLocation;
+}
+
+void UNPCombatComponent::InitializeCombat(ANPPlayerCharacterBase* InOwnerCharacter)
 {
 	OwnerCharacter = InOwnerCharacter;
+	StatComp = OwnerCharacter->FindComponentByClass<UNPCharacterStatComponent>();
 	OwnerCharacter->GetMesh()->GetAnimInstance()->OnMontageBlendingOut.AddDynamic(this, &UNPCombatComponent::OnSkillEnded);
 	CurrentSkill = ENPAbilityType::None;
 	for (auto SkillData : SkillDataMap)
@@ -74,16 +109,50 @@ bool UNPCombatComponent::TryExecuteAbility(ENPAbilityType AbilityType, bool bExt
 		return false;
 	}
 
-	// 방향
-	FRotator TargetRot;
-	const FVector InputVector = OwnerCharacter->GetLastMovementInputVector();
+	if (!StatComp)
+	{
+		NP_LOG(NPLog, Warning, TEXT("StatComp 없음"));
+		return false;
+	}
 
-	if (!InputVector.IsNearlyZero() && !Skill->bAutoTarget)
-		TargetRot = InputVector.Rotation();
+	if (AbilityType == ENPAbilityType::Skill)
+	{
+		if (!StatComp->ConsumeResourceStat(ENPResourceStatType::SkillCost, Skill->Cost))
+		{
+			NP_LOG(NPLog, Warning, TEXT("SkillCost 부족함"));
+			return false;
+		}
+	}
+	else if (AbilityType == ENPAbilityType::Ultimate)
+	{
+		if (!StatComp->ConsumeResourceStat(ENPResourceStatType::UltimateCost, Skill->Cost))
+		{
+			NP_LOG(NPLog, Warning, TEXT("UltimateCost 부족함"));
+			return false;
+		}
+	}
 	else
-		TargetRot = GetTargetRotation();
+	{
+		if (!StatComp->ConsumeResourceStat(ENPResourceStatType::Stamina, Skill->Cost))
+		{
+			NP_LOG(NPLog, Warning, TEXT("Stamina 부족함"));
+			return false;
+		}
+	}
 
-	if (!ExecuteAbility(AbilityType, TargetRot, bExtra)) return false;
+	// 방향
+	AActor* Target = nullptr;
+	FRotator TargetRot = OwnerCharacter->GetActorRotation();
+
+	const FVector InputVector = OwnerCharacter->GetLastMovementInputVector();
+	if (!InputVector.IsNearlyZero())
+		TargetRot = InputVector.Rotation();
+
+	if (Skill->bAutoTarget)
+		Target = FindTarget();
+
+	if (!ExecuteAbility(AbilityType, TargetRot, bExtra, Target))
+		return false;
 
 	// 쿨다운 적용
 	if (CurrentSectionIndex <= 1)
@@ -97,7 +166,7 @@ bool UNPCombatComponent::TryExecuteAbility(ENPAbilityType AbilityType, bool bExt
 	return true;
 }
 
-bool UNPCombatComponent::ExecuteAbility(ENPAbilityType AbilityType, const FRotator& Rotation, bool bExtra)
+bool UNPCombatComponent::ExecuteAbility(ENPAbilityType AbilityType, const FRotator& Rotation, bool bExtra, AActor* Target)
 {
 	const UNPSkillData* Skill = FindAbility(AbilityType);
 	if (!OwnerCharacter || !Skill || !OwnerCharacter->GetMesh()) return false;
@@ -106,7 +175,19 @@ bool UNPCombatComponent::ExecuteAbility(ENPAbilityType AbilityType, const FRotat
 	if (!Skill->Montage) return false;
 	if (OwnerCharacter->HasAnyState(ENPCharacterState::Stagger) && bComboWindowOpen == false) return false;
 
-	if (!PlaySkill(AbilityType, Rotation, bExtra)) return false;
+	// 타겟이 없다면 매개변수 Rotation방향으로 PlaySkill
+	FRotator TargetRotation = Rotation;
+	OwnerCharacter->SetAnimRootMotionTranslationScale(1.f);
+	if (Target)
+	{	// 타겟이 있다면 타겟 방향으로 PlaySkill
+		TargetRotation = UKismetMathLibrary::FindLookAtRotation(OwnerCharacter->GetActorLocation(), Target->GetActorLocation());
+		OwnerCharacter->SetAnimRootMotionTranslationScale(1.7f);
+	}
+	TargetRotation.Pitch = 0.f;
+	TargetRotation.Roll = 0.f;
+	OwnerCharacter->SetTarget(Target);
+
+	if (!PlaySkill(AbilityType, TargetRotation, bExtra)) return false;
 
 	return true;
 }
@@ -120,11 +201,27 @@ bool UNPCombatComponent::PlaySkill(ENPAbilityType AbilityType, const FRotator& R
 
 	if (CurrentSkill != AbilityType)
 	{
-		if (AnimInst->Montage_Play(Skill->Data->Montage, 1.f) <= 0.f)
+		bool bPlaySucceeded = false;
+		// 컷씬 있을경우
+		if (Skill->Data->bPlaySkillCutscene && Skill->Data->SkillCutscene)
+		{
+			//블랜드없이 재생
+			bPlaySucceeded = (AnimInst->Montage_PlayWithBlendIn(Skill->Data->Montage, FAlphaBlendArgs(0.f)) > 0.f);
+			OwnerCharacter->SetActorRotation(Rotation);
+			UNPSkillCutsceneSubsystem::GetChecked(this)->PlaySkillCutscene(Skill->Data->SkillCutscene ,OwnerCharacter, Skill->Data->RestoreViewBlendTime);
+		}
+		else // 컷씬 없을경우
+		{
+			// 몽타주의 블렌드 설정값 그대로 재생
+			bPlaySucceeded = (AnimInst->Montage_Play(Skill->Data->Montage) > 0.f);
+		}
+
+		if (!bPlaySucceeded)
 		{
 			NP_LOG(NPLog, Warning, TEXT("몽타주 실행 실패"));
 			return false;
 		}
+
 		CurrentSectionIndex = 0;
 	}
 
@@ -254,47 +351,30 @@ void UNPCombatComponent::OnDodgeSuccess()
 	ExecuteAbility(ENPAbilityType::DodgeSuccess, OwnerCharacter->GetActorRotation(), bCurrentSkillIsExtra);
 }
 
-const FRotator UNPCombatComponent::GetTargetRotation()
+AActor* UNPCombatComponent::FindTarget()
 {
-	ANPPlayerController* PlayerController = Cast<ANPPlayerController>(OwnerCharacter->GetController());
-	if (!PlayerController) return OwnerCharacter->GetActorRotation();
+	INPTargetingInterface* TargetingInterface = Cast<INPTargetingInterface>(OwnerCharacter->GetController());
+	if (!TargetingInterface)
+		return nullptr;
 
-	const AActor* LockOnTarget = PlayerController->GetLockOnTarget();
-	if (LockOnTarget)
-	{
-		return FRotator(0.f, PlayerController->GetControlRotation().Yaw, 0.f);
-	}
+	//락온 중인 타겟
+	AActor* TargetActor = TargetingInterface->GetLockOnTarget();
+	if (!TargetActor)
+	{	//락온중인 타겟 없을시
 
-	const FVector InputVector = OwnerCharacter->GetLastMovementInputVector();
-	if (!InputVector.IsNearlyZero())
-	{
-		AActor* TargetActor = PlayerController->SearchNearTargetWithinSector(MonsterTraceChannel, AutoTargetingRange, InputVector, 45.f);
-
-		if (ANPPlayerCharacter* NPChar = Cast<ANPPlayerCharacter>(OwnerCharacter))
-			NPChar->SetTarget(TargetActor);
-
-		if (!TargetActor)
+		const FVector InputVector = OwnerCharacter->GetLastMovementInputVector();
+		if (InputVector.IsNearlyZero())
 		{
-			return InputVector.Rotation();
+			//방향키 미입력 시 주변 탐색
+			TargetActor = TargetingInterface->FindTargetAround(MonsterTraceChannel, AutoTargetingRange);
 		}
-		return UKismetMathLibrary::FindLookAtRotation(OwnerCharacter->GetActorLocation(), TargetActor->GetActorLocation());
+		else
+		{
+			//방향키 입력 시 입력한 방향 기준 정면 탐색
+			TargetActor = TargetingInterface->FindTargetInFront(MonsterTraceChannel, AutoTargetingRange, InputVector, 45.f);
+		}
 	}
-
-	AActor* Target = PlayerController->SearchNearTargetWithinCircle(MonsterTraceChannel, AutoTargetingRange);
-
-	if (ANPPlayerCharacter* NPChar = Cast<ANPPlayerCharacter>(OwnerCharacter))
-		NPChar->SetTarget(Target);
-
-	if (Target)
-	{
-		const FVector CharacterLocation = OwnerCharacter->GetActorLocation();
-		const FVector TargetLocation = Target->GetActorLocation();
-		const FRotator LookAt = (TargetLocation - CharacterLocation).Rotation();
-		return FRotator(0.f, LookAt.Yaw, 0.f);
-	}
-	
-	return OwnerCharacter->GetActorRotation();
-
+	return TargetActor;
 }
 
 void UNPCombatComponent::OnSkillEnded(UAnimMontage* Montage, bool bInterrupted)

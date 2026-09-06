@@ -28,7 +28,12 @@ class NEONPROJECT_API UNPCombatComponent : public UActorComponent
 public:	
 	UNPCombatComponent();
 
-    void InitializeCombat(class ANPPlayerCharacter* InOwnerCharacter);
+    // Called every frame
+    virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
+
+
+
+    void InitializeCombat(class ANPPlayerCharacterBase* InOwnerCharacter);
 
     // Ability 등록 / 찾기
     void RegisterAbility(const UNPSkillData* Skill);
@@ -38,7 +43,7 @@ public:
 public:
     bool TryExecuteAbility(ENPAbilityType AbilityType, bool bExtra = false);
 private:
-    bool ExecuteAbility(ENPAbilityType AbilityType, const FRotator& Rotation, bool bExtra = false);
+    bool ExecuteAbility(ENPAbilityType AbilityType, const FRotator& Rotation, bool bExtra = false, AActor* Target = 0);
     bool PlaySkill(ENPAbilityType AbilityType, const FRotator& Rotation, bool bExtra = false);
 
     // 콤보 관련
@@ -64,7 +69,7 @@ public:
     void OnDodgeSuccess();
 
 private:
-    const FRotator GetTargetRotation();
+    AActor* FindTarget();
 
     UFUNCTION()
     void OnSkillEnded(UAnimMontage* Montage, bool bInterrupted);
@@ -74,6 +79,9 @@ private:
     void SetBufferedSkill(ENPAbilityType SkillType);
 
 private:
+    UPROPERTY()
+    TObjectPtr<class UNPCharacterStatComponent> StatComp;
+
     UPROPERTY(EditDefaultsOnly, Category = "NP|Ability", meta = (AllowPrivateAccess = "true"))
     TMap<ENPAbilityType, TObjectPtr<class UNPSkillData>> SkillDataMap;
 
@@ -81,7 +89,7 @@ private:
     float AutoTargetingRange = 1500.f;
 
     UPROPERTY()
-    ANPPlayerCharacter* OwnerCharacter = nullptr;
+    ANPPlayerCharacterBase* OwnerCharacter = nullptr;
 
     UPROPERTY()
     TMap<ENPAbilityType, FNPAbilityRuntime> Abilities;
@@ -111,6 +119,9 @@ private:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "NP|Collision", meta = (AllowPrivateAccess = "true"))
     TEnumAsByte<ECollisionChannel> MonsterTraceChannel = ECollisionChannel::ECC_GameTraceChannel1;
+
+private:
+    FVector PrevLocation;
 
 public:
     FOnSkillPlayedDelegate  OnSkillPlayed;

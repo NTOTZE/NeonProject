@@ -4,10 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Interface/NPInputCommandReceiver.h"
 #include "NPCameraRig.generated.h"
 
 UCLASS()
-class NEONPROJECT_API ANPCameraRig : public AActor
+class NEONPROJECT_API ANPCameraRig : public AActor, public INPInputCommandReceiver
 {
 	GENERATED_BODY()
 	
@@ -23,9 +24,21 @@ public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
-	void SetFollowTarget(AActor* NewTarget);
+	virtual bool HandleInputCommand(class AController* InstigatorController, FNPInputCommand Command) override;
+
+	void SetFollowTarget(ACharacter* NewTarget);
 	void SetLockOnTarget(AActor* NewLockOnTarget);
 	AActor* GetLockOnTarget() { return LockOnTarget.IsValid() ? LockOnTarget.Get() : nullptr; }
+
+public:
+	AActor* SearchNearTargetWithinCircle(ECollisionChannel TraceChannel, float Radius);
+	AActor* SearchNearTargetWithinSector(ECollisionChannel TraceChannel, float Radius, const FVector& Direction, float AngleDeg);
+
+
+public:
+	UFUNCTION(BlueprintCallable) class UCameraComponent* GetCameraComponent() { return CameraComp; }
+	
+	UFUNCTION(BlueprintCallable) class USpringArmComponent* GetSpringArmComponent() { return SpringArmComp; }
 
 private:
 	UPROPERTY()
@@ -38,7 +51,7 @@ private:
 	TObjectPtr<class UCameraComponent> CameraComp;
 
 	UPROPERTY()
-	TWeakObjectPtr<AActor> FollowTarget;
+	TWeakObjectPtr<ACharacter> FollowTarget;
 
 	UPROPERTY()
 	TWeakObjectPtr<AActor> LockOnTarget;

@@ -5,7 +5,8 @@
 #include "NeonProject.h"
 #include "DataType/NPCombatTypes.h"
 #include "AI/NPAIController.h"
-#include "UI/NPMonsterInfoBase.h"
+#include "UI/Battle/NPMonsterInfoBase.h"
+#include "Component/NPCharacterStatComponent.h"
 
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -22,7 +23,7 @@ ANPMonsterCharacter::ANPMonsterCharacter()
 	WidgetComp = CreateDefaultSubobject<UWidgetComponent>(TEXT("WidgetComp"));
 	WidgetComp->SetupAttachment(GetCapsuleComponent());
 	WidgetComp->SetRelativeLocation(FVector(0.f, 0.f, 120.f));
-	ConstructorHelpers::FClassFinder<UNPMonsterInfoBase> UiFinder(TEXT("/Script/UMGEditor.WidgetBlueprint'/Game/NeonProject/Blueprint/UI/WBP_MonsterInfo.WBP_MonsterInfo_C'"));
+	ConstructorHelpers::FClassFinder<UNPMonsterInfoBase> UiFinder(TEXT("/Script/UMGEditor.WidgetBlueprint'/Game/NeonProject/Blueprint/UI/Battle/WBP_MonsterInfo.WBP_MonsterInfo_C'"));
 	if (UiFinder.Succeeded())
 	{
 		WidgetComp->SetWidgetClass(UiFinder.Class);
@@ -53,8 +54,9 @@ void ANPMonsterCharacter::BeginPlay()
 	if (MonUI)
 	{
 		MonsterUI = MonUI;
-		OnHPChange.AddUObject(this, &ANPMonsterCharacter::OnHPChanged);
-		MonsterUI->SetHPBarRatio(CurrentHP / MaxHP);
+		StatComponent->OnResourceStatChanged.AddUObject(this, &ANPMonsterCharacter::OnResourceStatChanged);
+		const FNPResourceStat& HpStat = StatComponent->GetResourceStat(ENPResourceStatType::Hp);
+		MonsterUI->SetHPBarRatio(HpStat.CurrentValue / HpStat.MaxValue);
 	}
 	InitDissolve();
 	SetDissolveAppearance(0.f);
@@ -130,11 +132,14 @@ AActor* ANPMonsterCharacter::GetTarget()
 	return UGameplayStatics::GetPlayerCharacter(GetWorld(), 0);
 }
 
-void ANPMonsterCharacter::OnHPChanged(float OldHP, float NewHP)
+void ANPMonsterCharacter::OnResourceStatChanged(ENPResourceStatType Type, float current, float max)
 {
 	if (!MonsterUI) return;
 
-	const float ratio = NewHP / MaxHP;
 
-	MonsterUI->SetHPBarRatio(ratio);
+	if (Type == ENPResourceStatType::Hp)
+	{
+		const float ratio = current / FMath::Max(max, 1.f);
+		MonsterUI->SetHPBarRatio(ratio);
+	}
 }

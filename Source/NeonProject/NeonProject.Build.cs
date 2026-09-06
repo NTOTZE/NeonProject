@@ -22,7 +22,17 @@ public class NeonProject : ModuleRules
             , "UMG"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] {  });
+		PrivateDependencyModuleNames.AddRange(new string[] {
+            "TemplateSequence",
+            "LevelSequence",
+            "MovieScene",
+            "MovieSceneTracks",
+            "Slate",
+            "SlateCore",
+            "CinematicCamera",
+            "MoviePlayer",
+			"StructUtils",
+        });
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });

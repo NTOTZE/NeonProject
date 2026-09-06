@@ -8,3 +8,6 @@
 #define NP_LOG(LogCat, Verbosity, Format, ...) UE_LOG(LogCat, Verbosity, TEXT("%s %s"), LOG_CALLINFO, *FString::Printf(Format, ##__VA_ARGS__))
 
 DECLARE_LOG_CATEGORY_EXTERN(NPLog, Log, All);
+
+#define NP_WIDEN_IMPL(Value) L##Value
+#define NP_NAMEOF(Value) NP_WIDEN_IMPL(#Value)

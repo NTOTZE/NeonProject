@@ -5,13 +5,14 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "DataType/NPCombatTypes.h"
+#include "Component/NPCharacterStatComponent.h"
 #include "NPCharacterBase.generated.h"
 
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnStateChangeDelegate, ENPCharacterState /*Flags*/, bool /*Value*/);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnHPChangeDelegate, float /*OldHP*/, float/*NewHP*/);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDeadDelegate, AActor*, DeadActor);
 
-UCLASS()
+UCLASS(Abstract)
 class NEONPROJECT_API ANPCharacterBase : public ACharacter
 {
 	GENERATED_BODY()
@@ -30,8 +31,6 @@ protected:
 	UFUNCTION()
 	void HandleTakeAnyDamage(AActor* DamagedActor, float Damage, const class UDamageType* DamageType, class AController* InstigatedBy, AActor* DamageCauser);
 
-	UFUNCTION()
-	virtual void OnMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
 	void TryPlayHitReaction(float Damage);
 
 public:
@@ -76,32 +75,21 @@ public:
 	bool HasAnyState(ENPCharacterState flags);
 	bool HasAllState(ENPCharacterState flags);
 
+	FORCEINLINE class UNPCharacterStatComponent* GetStatComponent() { return StatComponent; }
+
 // Debug
 public:
 	bool IsSkillDebugDrawEnabled() { return bSkillDebugDrawEnable; }
 
-//	UI
-	float GetMaxHP() { return MaxHP; }
-	float GetCurrentHP() { return CurrentHP; }
-	TSoftObjectPtr<class UTexture2D> GetCharacterSoftTexture() { return CharacterImage; }
-
-private:
-	void SetHP(float NewHP);
 
 protected:
 	UPROPERTY(EditDefaultsOnly, Category = "NP|Component", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UStaticMeshComponent> WeaponMesh;
 
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "NP|Stats", meta = (AllowPrivateAccess = "true"))
-	TSoftObjectPtr<class UTexture2D> CharacterImage;
-
 	// ─ HP
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "NP|Stats", meta = (AllowPrivateAccess = "true"))
-	float MaxHP = 100.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "NP|Stats", meta = (AllowPrivateAccess = "true"))
-	float CurrentHP = 0.f;
+	UPROPERTY(EditDefaultsOnly, Category = "NP|Component", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UNPCharacterStatComponent> StatComponent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "NP|Animation|LightStagger", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UAnimMontage> LightStaggerMontage;
@@ -159,7 +147,6 @@ private:  //Dissolve 내부 변수
 
 public: //State
 	FOnStateChangeDelegate OnStateChange;
-	FOnHPChangeDelegate OnHPChange;
 	FOnDeadDelegate OnDead;
 protected:
 	ENPCharacterState State = ENPCharacterState::None;

@@ -3,11 +3,15 @@
 
 #include "Component/NPPartyComponent.h"
 #include "NeonProject.h"
-#include "Character/NPPlayerCharacter.h"
+#include "Character/Player/NPBattlePlayerCharacter.h"
+#include "DataType/NPInputCommandTypes.h"
+#include "Component/NPCharacterStatComponent.h"
+#include "Interface/NPBattleHUDInterface.h"
 
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h" 
 #include "Components/CapsuleComponent.h"
+#include "GameFramework/GameModeBase.h"
 
 
 UNPPartyComponent::UNPPartyComponent()
@@ -35,14 +39,14 @@ void UNPPartyComponent::InitParty(APlayerController* PC, const FTransform& Trans
 
     ClearParty();
 
-    for (const TSubclassOf<ANPPlayerCharacter>& Cls : PartyClasses)
+    for (const TSubclassOf<ANPBattlePlayerCharacter>& Classes : PartyClasses)
     {
-        if (!*Cls) continue;
+        if (!*Classes) continue;
 
         FActorSpawnParameters Params;
         Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
-        ANPPlayerCharacter* NewChar = World->SpawnActorDeferred<ANPPlayerCharacter>(Cls, Transform, /*Owner=*/PC);
+        ANPBattlePlayerCharacter* NewChar = World->SpawnActorDeferred<ANPBattlePlayerCharacter>(Classes, Transform, /*Owner=*/PC);
         if (!NewChar)
             continue;
 
@@ -52,6 +56,8 @@ void UNPPartyComponent::InitParty(APlayerController* PC, const FTransform& Trans
         NewChar->FinishSpawning(Transform);
 
         PartyMembers.Add(NewChar);
+
+        StatComponents.Add(NewChar->GetStatComponent());
     }
 
     if (PartyMembers.Num() == 0)
@@ -60,7 +66,16 @@ void UNPPartyComponent::InitParty(APlayerController* PC, const FTransform& Trans
         return;
     }
 
+    InitResourceStatHUD();
+    BindResourceStatChanged();
+
     CurrentIndex = INDEX_NONE;
+    World->GetTimerManager().SetTimer(
+        TimerHandle_NaturalRecovery,
+        this,
+        &UNPPartyComponent::NaturalRecoveryTimerCallback,
+        NaturalRecoveryTickInterval,
+        true);
 }
 
 bool UNPPartyComponent::SwapNext(APlayerController* PC)
@@ -91,7 +106,7 @@ bool UNPPartyComponent::SwapPrev(APlayerController* PC)
     return false;
 }
 
-bool UNPPartyComponent::SwapToIndex(APlayerController* PC, int32 NewIndex)
+bool UNPPartyComponent::SwapToIndex(AController* PC, int32 NewIndex)
 {
     if (!PC || !IsValidIndex(NewIndex) || NewIndex == CurrentIndex)
         return false;
@@ -104,8 +119,8 @@ bool UNPPartyComponent::SwapToIndex(APlayerController* PC, int32 NewIndex)
         return true;
     }
     
-    ANPPlayerCharacter* OldChar = PartyMembers[CurrentIndex];
-    ANPPlayerCharacter* NewChar = PartyMembers[NewIndex];
+    ANPBattlePlayerCharacter* OldChar = PartyMembers[CurrentIndex];
+    ANPBattlePlayerCharacter* NewChar = PartyMembers[NewIndex];
     
     if (!IsValid(OldChar) || !IsValid(NewChar))
         return false;
@@ -132,9 +147,24 @@ bool UNPPartyComponent::SwapToIndex(APlayerController* PC, int32 NewIndex)
     return true;
 }
 
+bool UNPPartyComponent::HandleInputCommand(AController* InstigatorController, FNPInputCommand Command)
+{
+    bool bSucceeded = false;
+    switch (Command.CommandType)
+    {
+    case ENPInputCommandType::Swap:
+    {
+        SwapToIndex(InstigatorController, Command.SwapIndex);
+        bSucceeded = true;
+        break;
+    }
+    }
+    return bSucceeded;
+}
+
 void UNPPartyComponent::ClearParty()
 {
-    for (ANPPlayerCharacter* Char : PartyMembers)
+    for (ANPBattlePlayerCharacter* Char : PartyMembers)
     {
         if (IsValid(Char))
         {
@@ -142,5 +172,147 @@ void UNPPartyComponent::ClearParty()
         }
     }
     PartyMembers.Empty();
+    StatComponents.Empty();
     CurrentIndex = INDEX_NONE;
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(TimerHandle_NaturalRecovery);
+    }
+}
+
+void UNPPartyComponent::InitResourceStatHUD()
+{
+    UWorld* World = GetWorld();
+    if (!World)
+        return;
+
+    INPBattleHUDInterface* BattleHUDInterface = Cast<INPBattleHUDInterface>(GetOwner());
+    if (!BattleHUDInterface)
+    {
+        NP_LOG(NPLog, Error, TEXT("MainHUDInterface : nullptr"));
+        return;
+    }
+
+    for (int32 i = 0; i < PartyMembers.Num(); ++i)
+    {
+        if (!PartyMembers[i]) continue;
+
+        PartyMembers[i]->OnStateChange.AddUObject(this, &UNPPartyComponent::HandleMemberStateChange, i);
+
+        if (BattleHUDInterface)
+        {
+            const FNPResourceStat& HpStat = PartyMembers[i]->GetStatComponent()->GetResourceStat(ENPResourceStatType::Hp);
+            BattleHUDInterface->SetMemberHpBar(i, HpStat.CurrentValue, HpStat.MaxValue);
+
+            const FNPResourceStat& SkillCostStat = PartyMembers[i]->GetStatComponent()->GetResourceStat(ENPResourceStatType::SkillCost);
+            BattleHUDInterface->SetMemberSkillCostBar(i, SkillCostStat.CurrentValue, SkillCostStat.MaxValue);
+
+            const FNPResourceStat& UltimateCostStat = PartyMembers[i]->GetStatComponent()->GetResourceStat(ENPResourceStatType::UltimateCost);
+            BattleHUDInterface->SetMemberUltimateCostBar(i, UltimateCostStat.CurrentValue, UltimateCostStat.MaxValue);
+
+            BattleHUDInterface->SetMemberImage(i, PartyMembers[i]->GetCharacterSoftTexture());
+            BattleHUDInterface->SetMemberOpacity(i, 0.5f);
+        }
+    }
+
+}
+
+void UNPPartyComponent::BindResourceStatChanged()
+{
+    for (int i = 0; i < PartyMembers.Num(); ++i)
+    {
+        StatComponents[i]->OnResourceStatChanged.AddUObject(this, &UNPPartyComponent::HandleResourceStatChanged, i);
+    }
+}
+
+void UNPPartyComponent::NaturalRecoveryTimerCallback()
+{
+    for (auto StatComp : StatComponents)
+    {
+        FNPNaturalRecoveryContext Context;
+        Context.RecoveryMultiplier = 1.f;
+        StatComp->ApplyNaturalRecovery(Context, NaturalRecoveryTickInterval);
+    }
+}
+
+void UNPPartyComponent::HandleResourceStatChanged(ENPResourceStatType Type, float current, float max, int32 idx)
+{
+    UWorld* World = GetWorld();
+    if (!World)
+        return;
+
+    INPBattleHUDInterface* BattleHUDInterface = Cast<INPBattleHUDInterface>(GetOwner());
+    if (!BattleHUDInterface)
+    {
+        NP_LOG(NPLog, Error, TEXT("MainHUDInterface : nullptr"));
+        return;
+    }
+
+    if (!PartyMembers.IsValidIndex(idx))
+        return;
+
+    switch (Type)
+    {
+    case ENPResourceStatType::Hp:
+    {
+        BattleHUDInterface->SetMemberHpBar(idx, current, max);
+        if (GetCurrentIdx() == idx)
+        {
+            BattleHUDInterface->SetPlayCharacterHpBar(current, max);
+        }
+
+        break;
+    }
+    case ENPResourceStatType::Stamina:
+    {
+        if (GetCurrentIdx() == idx)
+        {
+            BattleHUDInterface->SetPlayCharacterStaminaBar(current, max);
+        }
+
+        break;
+    }
+    case ENPResourceStatType::SkillCost:
+    {
+        BattleHUDInterface->SetMemberSkillCostBar(idx, current, max);
+        if (GetCurrentIdx() == idx)
+        {
+            BattleHUDInterface->SetPlayCharacterSkillCostBar(current, max);
+        }
+
+        break;
+    }
+    case ENPResourceStatType::UltimateCost:
+    {
+        BattleHUDInterface->SetMemberUltimateCostBar(idx, current, max);
+        if (GetCurrentIdx() == idx)
+        {
+            BattleHUDInterface->SetPlayCharacterUltimateCostBar(current, max);
+        }
+
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+void UNPPartyComponent::HandleMemberStateChange(ENPCharacterState Flags, bool bValue, int32 idx)
+{
+    if (EnumHasAnyFlags(Flags, ENPCharacterState::Active) && bValue == false)
+    {
+        if (GetCurrentIdx() == idx && GetCurrent()->HasAnyState(ENPCharacterState::Dead))
+        {
+            if (APlayerController* PC = Cast<APlayerController>(GetCurrent()->GetController()))
+            {
+                if (!SwapNext(PC))
+                {
+                    NP_LOG(NPLog, Warning, TEXT("전멸"));
+
+                    // TODO : 전멸 후 기능
+
+                }
+            }
+        }
+    }
 }
