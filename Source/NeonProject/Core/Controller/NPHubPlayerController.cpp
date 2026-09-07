@@ -8,14 +8,15 @@
 #include "Component/NPInteractionComponent.h"
 #include "Screen/Widget/NPScreenFadeWidgetBase.h"
 
-#include "GameFlow/NPGameFlowCommand.h"
+#include "GameFlow/Command/Factory/NPEnterStageCommandFactory.h"
+#include "GameFlow/NPGameFlowSettings.h"
 #include "DataType/NPStageData.h"
 #include "GameFlow/NPGameFlowSubsystem.h"
-#include "GameFlow/Handler/NPEnterStageHandler.h"
 #include "Loading/NPStageSessionSubsystem.h"
 #include "DataType/NPCharacterData.h"
 #include "GameData/NPGameDataSubsystem.h"
 #include "Character/NPCharacterBase.h"
+#include "Character/Player/NPPlayerCharacterBase.h"
 
 #include "Blueprint/UserWidget.h"
 #include "EnhancedInputComponent.h"
@@ -78,30 +79,47 @@ void ANPHubPlayerController::HandleStageSessionReady()
 	const UNPStageSessionSubsystem* StageSession = GetWorld()->GetSubsystem<UNPStageSessionSubsystem>();
 	check(StageSession);
 	const TArray<FName>& PartyCharacterIds = StageSession->GetSessionData().PartyCharacterIds;
-	if (PartyCharacterIds.IsEmpty())
+	const FNPCharacterData* CharacterData = nullptr;
+	UClass* CharacterClass = nullptr;
+	FName CharacterId = NAME_None;
+	if (!PartyCharacterIds.IsEmpty())
 	{
-		NP_LOG(NPLog, Warning, TEXT("허브 스폰에 사용할 파티 캐릭터 ID가 설정되어 있지 않습니다."));
-		return;
+		CharacterId = PartyCharacterIds[0];
+		CharacterData = UNPGameDataSubsystem::GetPlayerData(this, CharacterId);
+		CharacterClass = CharacterData ? CharacterData->CharacterClass.Get() : nullptr;
 	}
-
-	const FName CharacterId = PartyCharacterIds[0];
-	const FNPCharacterData* CharacterData = UNPGameDataSubsystem::GetPlayerData(this, CharacterId);
-	UClass* CharacterClass = CharacterData ? CharacterData->CharacterClass.Get() : nullptr;
+	else
+	{
+		CharacterClass = UNPGameFlowSettings::GetChecked()->GetDefaultHubCharacterClass().Get();
+	}
 	if (!CharacterClass || !CharacterClass->IsChildOf(ANPCharacterBase::StaticClass()))
 	{
-		NP_LOG(NPLog, Warning, TEXT("허브 캐릭터 [%s]의 클래스가 유효하지 않습니다."), *CharacterId.ToString());
+		if (CharacterId.IsNone())
+		{
+			NP_LOG(NPLog, Warning, TEXT("기본 허브 캐릭터 클래스가 설정되어 있지 않거나 유효하지 않습니다."));
+		}
+		else
+		{
+			NP_LOG(NPLog, Warning, TEXT("허브 캐릭터 [%s]의 클래스가 유효하지 않습니다."), *CharacterId.ToString());
+		}
 		return;
 	}
 
 	AGameModeBase* GameMode = GetWorld()->GetAuthGameMode();
 	AActor* StartPoint = GameMode ? GameMode->FindPlayerStart(this) : nullptr;
 	const FTransform SpawnTransform = StartPoint ? StartPoint->GetActorTransform() : FTransform::Identity;
-	ANPCharacterBase* HubCharacter = GetWorld()->SpawnActor<ANPCharacterBase>(CharacterClass, SpawnTransform);
+	ANPCharacterBase* HubCharacter = GetWorld()->SpawnActorDeferred<ANPCharacterBase>(CharacterClass, SpawnTransform);
 	if (!HubCharacter)
 	{
-		NP_LOG(NPLog, Warning, TEXT("허브 캐릭터 [%s] 스폰에 실패했습니다."), *CharacterId.ToString());
+		NP_LOG(NPLog, Warning, TEXT("허브 캐릭터 [%s] 스폰에 실패했습니다."), CharacterId.IsNone() ? TEXT("기본 캐릭터") : *CharacterId.ToString());
 		return;
 	}
+	if (CharacterData)
+	{
+		if (ANPPlayerCharacterBase* PlayerCharacter = Cast<ANPPlayerCharacterBase>(HubCharacter))
+			PlayerCharacter->SetCharacterSoftTexture(CharacterData->ThumbnailTexture);
+	}
+	HubCharacter->FinishSpawning(SpawnTransform);
 
 	Possess(HubCharacter);
 	bHubCharacterSpawned = true;
@@ -215,10 +233,8 @@ void ANPHubPlayerController::HandleEscapeInput()
 	PartyCharacterIds.Add(TEXT("Player0002"));
 	PartyCharacterIds.Add(TEXT("Player0003"));
 
-	FNPGameFlowCommand EnterStageCommand = FNPGameFlowCommand::Make(
-		FNPGameFlowCommandOptions::Make(false, true, 1.f),
-		FNPEnterStageHandlerData::Make(ENPStageType::Battle, TEXT("Battle0001"), PartyCharacterIds)
-	);
+	const FNPGameFlowCommand EnterStageCommand = NPEnterStageCommandFactory::MakeEnterStage(
+		ENPStageType::Battle, TEXT("Battle0001"), PartyCharacterIds);
 	UNPGameFlowSubsystem::GetChecked(this)->RequestExecuteCommand(EnterStageCommand);
 }
 

@@ -26,6 +26,9 @@ struct FNPStageSessionData
 
 	UPROPERTY(BlueprintReadOnly)
 	TArray<FSoftObjectPath> AdditionalAssets;
+
+	// 이 스테이지 진입 직전 세션
+	TSharedPtr<const FNPStageSessionData> PreviousSession;
 };
 
 // 스테이지 진입 데이터와 로드 완료 에셋 핸들을 월드 수명 동안 보관
@@ -38,6 +41,7 @@ class NEONPROJECT_API UNPStageSessionSubsystem : public UWorldSubsystem
 public:
 	void InitializeSession(FNPStageSessionData&& InSessionData, TArray<TSharedPtr<FStreamableHandle>>&& InAssetHandles);
 	const FNPStageSessionData& GetSessionData() const { return SessionData; }
+	const TSharedPtr<const FNPStageSessionData>& GetPreviousSession() const { return SessionData.PreviousSession; }
 	bool IsSessionInitialized() const { return bSessionInitialized; }
 	FNPStageSessionReadyDelegate OnSessionReady;
 

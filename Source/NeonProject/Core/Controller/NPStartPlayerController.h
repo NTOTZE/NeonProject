@@ -12,8 +12,6 @@ class NEONPROJECT_API ANPStartPlayerController : public APlayerController
 	GENERATED_BODY()
 
 public:
-	ANPStartPlayerController();
-
 	virtual void BeginPlay() override;
 
 	/// @brief 시작 화면의 게임 시작 버튼에서 호출
@@ -25,12 +23,6 @@ private:
 	void HandleStartGameClicked();
 
 private:
-	UPROPERTY(EditDefaultsOnly, Category = "NP|Start")
-	FName HubStageId = TEXT("Hub0001");
-
-	UPROPERTY(EditDefaultsOnly, Category = "NP|Start")
-	TArray<FName> PartyCharacterIds;
-
 	UPROPERTY(Transient)
 	TObjectPtr<class UNPStartWidget> StartWidget;
 

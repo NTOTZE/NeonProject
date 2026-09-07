@@ -58,6 +58,7 @@ void UNPPartyComponent::InitParty(APlayerController* PC, const FTransform& Trans
         if (!NewChar)
             continue;
 
+		NewChar->SetCharacterSoftTexture(CharacterData->ThumbnailTexture);
         NewChar->GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
         NewChar->SetActorTickEnabled(false);
         NewChar->SetActorHiddenInGame(true);
@@ -198,8 +199,10 @@ void UNPPartyComponent::InitResourceStatHUD()
     if (!BattleHUDInterface)
     {
         NP_LOG(NPLog, Error, TEXT("MainHUDInterface : nullptr"));
-        return;
-    }
+		return;
+	}
+
+	BattleHUDInterface->SetMemberCount(PartyMembers.Num());
 
     for (int32 i = 0; i < PartyMembers.Num(); ++i)
     {
@@ -235,8 +238,16 @@ void UNPPartyComponent::BindResourceStatChanged()
 
 void UNPPartyComponent::NaturalRecoveryTimerCallback()
 {
-    for (auto StatComp : StatComponents)
+    for (int32 Index = 0; Index < StatComponents.Num(); ++Index)
     {
+        if (!PartyMembers.IsValidIndex(Index) || !PartyMembers[Index] ||
+            PartyMembers[Index]->HasAnyState(ENPCharacterState::Dead))
+            continue;
+
+        UNPCharacterStatComponent* StatComp = StatComponents[Index];
+        if (!StatComp)
+            continue;
+
         FNPNaturalRecoveryContext Context;
         Context.RecoveryMultiplier = 1.f;
         StatComp->ApplyNaturalRecovery(Context, NaturalRecoveryTickInterval);
@@ -307,20 +318,30 @@ void UNPPartyComponent::HandleResourceStatChanged(ENPResourceStatType Type, floa
 
 void UNPPartyComponent::HandleMemberStateChange(ENPCharacterState Flags, bool bValue, int32 idx)
 {
-    if (EnumHasAnyFlags(Flags, ENPCharacterState::Active) && bValue == false)
+    if (!EnumHasAnyFlags(Flags, ENPCharacterState::Dead) || !bValue)
+        return;
+
+    UWorld* World = GetWorld();
+    if (!World)
+        return;
+
+    World->GetTimerManager().SetTimerForNextTick(
+        FTimerDelegate::CreateUObject(this, &ThisClass::HandleMemberDeadDeferred, idx));
+}
+
+void UNPPartyComponent::HandleMemberDeadDeferred(int32 Index)
+{
+    if (!PartyMembers.IsValidIndex(Index) || !PartyMembers[Index] ||
+        !PartyMembers[Index]->HasAnyState(ENPCharacterState::Dead))
+        return;
+
+    OnPartyMemberDead.Broadcast(Index);
+
+    if (GetCurrentIdx() == Index)
     {
-        if (GetCurrentIdx() == idx && GetCurrent()->HasAnyState(ENPCharacterState::Dead))
+        if (APlayerController* PC = Cast<APlayerController>(GetCurrent()->GetController()))
         {
-            if (APlayerController* PC = Cast<APlayerController>(GetCurrent()->GetController()))
-            {
-                if (!SwapNext(PC))
-                {
-                    NP_LOG(NPLog, Warning, TEXT("전멸"));
-
-                    // TODO : 전멸 후 기능
-
-                }
-            }
+            SwapNext(PC);
         }
     }
 }

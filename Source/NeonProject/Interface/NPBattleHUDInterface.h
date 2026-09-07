@@ -27,6 +27,7 @@ public:
 	virtual void SetPlayCharacterSkillCostBar(float current, float max) = 0;
 	virtual void SetPlayCharacterUltimateCostBar(float current, float max) = 0;
 
+	virtual void SetMemberCount(int32 Count) = 0;
 	virtual void SetMemberHpBar(int32 Idx, float current, float max) = 0;
 	virtual void SetMemberSkillCostBar(int32 Idx, float current, float max) = 0;
 	virtual void SetMemberUltimateCostBar(int32 Idx, float current, float max) = 0;

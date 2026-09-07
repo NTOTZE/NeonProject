@@ -16,4 +16,5 @@ class NEONPROJECT_API UNPGameInstance : public UGameInstance
 	
 public:
 	UNPGameInstance();
+	virtual void Init() override;
 };

@@ -24,12 +24,26 @@ void UNPPartyInfoBase::NativeConstruct()
 	MemberInfos.Add(MemberInfo_1);
 	MemberInfos.Add(MemberInfo_2);
 	MemberInfos.Add(MemberInfo_3);
+	SetMemberCount(0);
 }
 
 void UNPPartyInfoBase::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
 
+}
+
+void UNPPartyInfoBase::SetMemberCount(int32 Count)
+{
+	const int32 VisibleMemberCount = FMath::Clamp(Count, 0, MemberInfos.Num());
+	for (int32 Index = 0; Index < MemberInfos.Num(); ++Index)
+	{
+		if (MemberInfos[Index])
+		{
+			MemberInfos[Index]->SetVisibility(
+				Index < VisibleMemberCount ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+		}
+	}
 }
 
 void UNPPartyInfoBase::SetMemberHpBar(int32 Idx, float current, float max)

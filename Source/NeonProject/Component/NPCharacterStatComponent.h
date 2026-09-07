@@ -27,13 +27,13 @@ struct FNPResourceStat
 
 public:
 	UPROPERTY(EditAnywhere, Category = "NP|Stat")
-	float MaxValue;
+	float MaxValue = 0.f;
 
 	UPROPERTY(VisibleInstanceOnly, Category = "NP|Stat")
-	float CurrentValue;
+	float CurrentValue = 0.f;
 
 	UPROPERTY(EditAnywhere, Category = "NP|Stat")
-	float RegenPerSec;
+	float RegenPerSec = 0.f;
 
 	UPROPERTY(EditAnywhere, Category = "NP|Stat", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float HitRecoveryAmount = 0.f;

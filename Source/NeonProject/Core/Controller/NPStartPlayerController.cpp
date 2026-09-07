@@ -1,19 +1,10 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "Core/Controller/NPStartPlayerController.h"
-#include "DataType/NPStageData.h"
-#include "GameFlow/Handler/NPEnterStageHandler.h"
-#include "GameFlow/NPGameFlowCommand.h"
+#include "GameFlow/Command/Factory/NPEnterStageCommandFactory.h"
 #include "GameFlow/NPGameFlowSubsystem.h"
 #include "Loading/NPLoadingSettings.h"
 #include "UI/Start/NPStartWidget.h"
-
-ANPStartPlayerController::ANPStartPlayerController()
-{
-	PartyCharacterIds = {
-		TEXT("Player0000")
-	};
-}
 
 void ANPStartPlayerController::BeginPlay()
 {
@@ -58,9 +49,7 @@ void ANPStartPlayerController::StartGame()
 	SetInputMode(FInputModeGameOnly());
 	bShowMouseCursor = false;
 
-	const FNPGameFlowCommand EnterHubCommand = FNPGameFlowCommand::Make(
-		FNPGameFlowCommandOptions::Make(false, true, 1.f),
-		FNPEnterStageHandlerData::Make(ENPStageType::Hub, HubStageId, PartyCharacterIds));
+	const FNPGameFlowCommand EnterHubCommand = NPEnterStageCommandFactory::MakeEnterDefaultHub();
 
 	if (!UNPGameFlowSubsystem::GetChecked(this)->RequestExecuteCommand(EnterHubCommand))
 	{

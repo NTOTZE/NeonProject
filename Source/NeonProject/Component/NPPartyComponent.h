@@ -9,6 +9,7 @@
 #include "Component/NPCharacterStatComponent.h"
 #include "NPPartyComponent.generated.h"
 
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnNPPartyMemberDead, int32);
 
 UCLASS( ClassGroup=(Custom), meta=(BlueprintSpawnableComponent) )
 class NEONPROJECT_API UNPPartyComponent : public UActorComponent, public INPInputCommandReceiver
@@ -46,6 +47,7 @@ public:
     int32 Num() const { return PartyMembers.Num(); }
 
     const TArray<class ANPBattlePlayerCharacter*>& GetAllMembers() const { return PartyMembers; }
+    FOnNPPartyMemberDead OnPartyMemberDead;
 
 private:
     bool IsValidIndex(int32 Index) const { return PartyMembers.IsValidIndex(Index); }
@@ -61,6 +63,7 @@ private:
 ///////////////////////////////////////////
 // 스테이트 관련 (전멸 판정)
     void HandleMemberStateChange(ENPCharacterState Flags, bool bValue, int32 idx);
+    void HandleMemberDeadDeferred(int32 Index);
 
 ///////////////////////////////////////////
 

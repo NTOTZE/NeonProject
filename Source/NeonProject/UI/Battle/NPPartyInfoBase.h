@@ -18,6 +18,7 @@ public:
 	virtual void NativeConstruct() override;
 	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
 
+	void SetMemberCount(int32 Count);
 	void SetMemberHpBar(int32 Idx, float current, float max);
 	void SetMemberSkillCostBar(int32 Idx, float current, float max);
 	void SetMemberUltimateCostBar(int32 Idx, float current, float max);

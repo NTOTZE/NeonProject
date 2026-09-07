@@ -52,9 +52,10 @@ public:
 
 
 public:		//	UI
-	TSoftObjectPtr<class UTexture2D> GetCharacterSoftTexture() { return CharacterImage; }
+	TSoftObjectPtr<class UTexture2D> GetCharacterSoftTexture() const { return CharacterImage; }
+	void SetCharacterSoftTexture(const TSoftObjectPtr<class UTexture2D>& InCharacterImage) { CharacterImage = InCharacterImage; }
 	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "NP|Stats", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "NP|Stats", meta = (AllowPrivateAccess = "true"))
 	TSoftObjectPtr<class UTexture2D> CharacterImage;
 
 protected:

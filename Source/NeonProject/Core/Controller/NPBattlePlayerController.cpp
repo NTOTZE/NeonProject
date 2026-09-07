@@ -339,6 +339,16 @@ void ANPBattlePlayerController::SetPlayCharacterUltimateCostBar(float current, f
 	BattleHUD->SetPlayerUltimateCostBar(current, max);
 }
 
+void ANPBattlePlayerController::SetMemberCount(int32 Count)
+{
+	if (!BattleHUD)
+	{
+		NP_LOG(NPLog, Error, TEXT("BattleHUD가 유효하지 않습니다."));
+		return;
+	}
+	BattleHUD->SetMemberCount(Count);
+}
+
 void ANPBattlePlayerController::SetMemberHpBar(int32 Idx, float current, float max)
 {
 	if (!BattleHUD)

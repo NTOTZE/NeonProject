@@ -3,6 +3,7 @@
 #include "DataType/NPCharacterData.h"
 #include "DataAsset/NPEncounterData.h"
 #include "GameData/NPGameDataSubsystem.h"
+#include "GameFlow/NPGameFlowSettings.h"
 #include "Loading/NPLoadingSubsystem.h"
 #include "Loading/NPStageSessionSubsystem.h"
 #include "Screen/NPScreenSubsystem.h"
@@ -10,6 +11,10 @@
 
 void UNPEnterStageHandler::PrepareExecuteInternal()
 {
+	const UNPStageSessionSubsystem* CurrentSession = UNPStageSessionSubsystem::GetChecked(this);
+	if (CurrentSession->IsSessionInitialized())
+		PreviousSession = MakeShared<FNPStageSessionData>(CurrentSession->GetSessionData());
+
 	const FNPEnterStageHandlerData& Data = GetHandlerData().Get<FNPEnterStageHandlerData>();
 	switch (Data.StageType)
 	{
@@ -54,6 +59,20 @@ void UNPEnterStageHandler::PrepareExecuteInternal()
 	}
 	checkf(!StageLevel.IsNull(), TEXT("Stage [%s]의 Level이 설정되어 있지 않습니다."), *Data.StageId.ToString());
 	bFailed = StageLevel.IsNull();
+	if (Data.StageType == ENPStageType::Hub && Data.PartyCharacterIds.IsEmpty())
+	{
+		const TSoftClassPtr<ANPCharacterBase>& DefaultHubCharacterClass =
+			UNPGameFlowSettings::GetChecked()->GetDefaultHubCharacterClass();
+		checkf(!DefaultHubCharacterClass.IsNull(), TEXT("기본 허브 캐릭터 클래스가 설정되어 있지 않습니다."));
+		if (DefaultHubCharacterClass.IsNull())
+		{
+			bFailed = true;
+		}
+		else
+		{
+			AddAsset(DefaultHubCharacterClass.ToSoftObjectPath(), TEXT("기본 허브 캐릭터"));
+		}
+	}
 
 	auto AddPlayerAssets = [this](const TArray<FName>& Ids)
 	{
@@ -218,6 +237,7 @@ void UNPEnterStageHandler::FinishInternal()
 			SessionData.StageId = Data.StageId;
 			SessionData.PartyCharacterIds = Data.PartyCharacterIds;
 			SessionData.AdditionalAssets = Data.AdditionalAssets;
+			SessionData.PreviousSession = MoveTemp(PreviousSession);
 			Session->InitializeSession(MoveTemp(SessionData), MoveTemp(AssetHandles));
 		}
 	}
@@ -237,4 +257,5 @@ void UNPEnterStageHandler::CleanupInternal()
 	AssetPaths.Reset();
 	DestinationWorld.Reset();
 	StageLevel.Reset();
+	PreviousSession.Reset();
 }

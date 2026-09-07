@@ -60,6 +60,11 @@ void UNPBattleHUDBase::SetPlayerUltimateCostBar(float current, float max)
 	PlayerInfo->SetUltimateCostBar(current, max);
 }
 
+void UNPBattleHUDBase::SetMemberCount(int32 Count)
+{
+	PartyInfo->SetMemberCount(Count);
+}
+
 void UNPBattleHUDBase::SetMemberHpBar(int32 Idx, float current, float max)
 {
 	PartyInfo->SetMemberHpBar(Idx, current, max);

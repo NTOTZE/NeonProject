@@ -9,6 +9,7 @@
 
 enum class ENPStageType : uint8;
 struct FStreamableHandle;
+struct FNPStageSessionData;
 
 USTRUCT(BlueprintType)
 struct FNPEnterStageHandlerData : public FNPGameFlowHandlerDataBase
@@ -74,4 +75,5 @@ private:
 	bool bLevelLoaded = false;
 	bool bFailed = false;
 	bool bClosingScreen = false;
+	TSharedPtr<const FNPStageSessionData> PreviousSession;
 };

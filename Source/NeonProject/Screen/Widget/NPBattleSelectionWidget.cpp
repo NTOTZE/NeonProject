@@ -2,12 +2,10 @@
 
 
 #include "Screen/Widget/NPBattleSelectionWidget.h"
-#include "Character/Player/NPPlayerCharacterBase.h"
 #include "Components/Button.h"
 #include "Components/ListView.h"
 #include "DataType/NPCharacterData.h"
-#include "GameFlow/Handler/NPEnterStageHandler.h"
-#include "GameFlow/NPGameFlowCommand.h"
+#include "GameFlow/Command/Factory/NPEnterStageCommandFactory.h"
 #include "GameFlow/NPGameFlowSubsystem.h"
 #include "GameData/NPGameDataSubsystem.h"
 #include "NeonProject.h"
@@ -208,13 +206,7 @@ void UNPBattleSelectionWidget::UpdateCharacterList()
 		UNPBattleSelectionCharacterItem* CharacterItem = NewObject<UNPBattleSelectionCharacterItem>(this);
 		CharacterItem->CharacterId = CharacterId;
 		CharacterItem->CharacterName = CharacterData->CharacterName;
-		if (UClass* CharacterClass = CharacterData->CharacterClass.LoadSynchronous())
-		{
-			if (ANPPlayerCharacterBase* CharacterDefaultObject = Cast<ANPPlayerCharacterBase>(CharacterClass->GetDefaultObject()))
-			{
-				CharacterItem->ThumbnailTexture = CharacterDefaultObject->GetCharacterSoftTexture();
-			}
-		}
+		CharacterItem->ThumbnailTexture = CharacterData->ThumbnailTexture;
 		CharacterItem->bIsSelected = false;
 		CharacterItem->bIsSelectionLocked = false;
 		CharacterItem->SelectionOrder = 0;
@@ -349,9 +341,8 @@ void UNPBattleSelectionWidget::RequestEnterBattle(const FName& BattleStageId)
 		return;
 	}
 
-	const FNPGameFlowCommand EnterStageCommand = FNPGameFlowCommand::Make(
-		FNPGameFlowCommandOptions::Make(false, true, 1.f),
-		FNPEnterStageHandlerData::Make(ENPStageType::Battle, BattleStageId, PartyCharacterIds));
+	const FNPGameFlowCommand EnterStageCommand = NPEnterStageCommandFactory::MakeEnterStage(
+		ENPStageType::Battle, BattleStageId, PartyCharacterIds);
 	if (UNPGameFlowSubsystem::GetChecked(this)->RequestExecuteCommand(EnterStageCommand))
 	{
 		// 진입 요청이 수락되면 페이드 후 선택 화면을 닫고 게임 입력을 복원한다.

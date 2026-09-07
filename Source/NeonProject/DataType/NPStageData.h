@@ -41,7 +41,7 @@ struct FNPBattleStageData : public FTableRowBase
 	FText Description;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
-	int32 Difficulty;
+	int32 Difficulty = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TSoftObjectPtr<UWorld> Level;

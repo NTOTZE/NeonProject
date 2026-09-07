@@ -11,7 +11,7 @@ class ANPSpawnPoint;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnNPWaveStarted, int32, CurrentWave, int32, TotalWave);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnNPWaveCleared, int32, CurrentWave, int32, TotalWave);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnNPEncounterCleared);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnNPEncounterEnded);
 
 UCLASS()
 class NEONPROJECT_API ANPEncounterManager : public AActor
@@ -50,6 +50,9 @@ protected:
 	void OnSpawnedEnemyDestroyed(AActor* DeadOrDestroyedActor);
 
 public:
+	void HandlePartyMemberDead(int32 MemberIndex);
+	void FailEncounter();
+
 	UPROPERTY(BlueprintAssignable, Category = "NP|Encounter")
 	FOnNPWaveStarted OnWaveStarted;
 
@@ -57,7 +60,10 @@ public:
 	FOnNPWaveCleared OnWaveCleared;
 
 	UPROPERTY(BlueprintAssignable, Category = "NP|Encounter")
-	FOnNPEncounterCleared OnEncounterCleared;
+	FOnNPEncounterEnded OnEncounterCleared;
+
+	UPROPERTY(BlueprintAssignable, Category = "NP|Encounter")
+	FOnNPEncounterEnded OnEncounterFailed;
 
 protected:
 	UPROPERTY(VisibleInstanceOnly, Category = "NP|Encounter")
@@ -81,5 +87,9 @@ protected:
 
 	int32 TotalWaves = 0;
 	int32 LastStartedWaveIndex = INDEX_NONE;
-
+	FTimerHandle EncounterFailedTimer;
+	bool bEncounterFinished = false;
+	bool bEncounterFailurePending = false;
+	//살아있는 파티 멤버 수
+	int32 AlivePartyMemberCount;
 };

@@ -10,7 +10,7 @@
 #include "DataType/NPStageData.h"
 #include "GameData/NPGameDataSubsystem.h"
 
-#include "GameFlow/NPGameFlowCommand.h"
+#include "GameFlow/Command/NPGameFlowCommand.h"
 #include "GameFlow/NPGameFlowSettings.h"
 #include "GameFlow/NPGameFlowHandlerBase.h"
 

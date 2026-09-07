@@ -17,7 +17,9 @@ class NEONPROJECT_API ANPBattleGameMode : public ANPGameModeBase
 public:
 	ANPBattleGameMode();
 
-	void BeginPlay() override;
+	virtual void BeginPlay() override;
+	void InitializeEncounterManager();
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
 	void ApplyTimeDilation(float Dilation, float Duration);
@@ -25,6 +27,7 @@ private:
 	UFUNCTION()	void OnWaveStarted(int32 CurrentWave, int32 TotalWave);
 	UFUNCTION()	void OnWaveCleared(int32 CurrentWave, int32 TotalWave);
 	UFUNCTION()	void OnEncounterCleared();
+	UFUNCTION()	void OnEncounterFailed();
 
 public:
 	const ANPEncounterManager* GetEncounterManager() { return EncounterManager; }
@@ -32,4 +35,5 @@ public:
 private:
 	UPROPERTY()
 	TObjectPtr<ANPEncounterManager> EncounterManager;
+	FTimerHandle TimeDilationHandler;
 };

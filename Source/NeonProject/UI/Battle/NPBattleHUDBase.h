@@ -24,6 +24,7 @@ public:
 	void SetPlayerSkillCostBar(float current, float max);
 	void SetPlayerUltimateCostBar(float current, float max);
 
+	void SetMemberCount(int32 Count);
 	void SetMemberHpBar(int32 Idx, float current, float max);
 	void SetMemberSkillCostBar(int32 Idx, float current, float max);
 	void SetMemberUltimateCostBar(int32 Idx, float current, float max);

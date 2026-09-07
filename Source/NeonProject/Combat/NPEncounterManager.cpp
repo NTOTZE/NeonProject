@@ -22,8 +22,7 @@ void ANPEncounterManager::BeginPlay()
 {
 	Super::BeginPlay();
 	
-	UNPStageSessionSubsystem* StageSession = GetWorld()->GetSubsystem<UNPStageSessionSubsystem>();
-	check(StageSession);
+	UNPStageSessionSubsystem* StageSession = UNPStageSessionSubsystem::GetChecked(this);
 	StageSession->OnSessionReady.AddUObject(this, &ThisClass::InitializeEncounterData);
 	if (StageSession->IsSessionInitialized())
 		InitializeEncounterData();
@@ -31,14 +30,18 @@ void ANPEncounterManager::BeginPlay()
 
 void ANPEncounterManager::InitializeEncounterData()
 {
-	const UNPStageSessionSubsystem* StageSession = GetWorld()->GetSubsystem<UNPStageSessionSubsystem>();
-	check(StageSession);
+	UNPStageSessionSubsystem* StageSession = UNPStageSessionSubsystem::GetChecked(this);
 	const FNPStageSessionData& SessionData = StageSession->GetSessionData();
 	if (SessionData.StageType != ENPStageType::Battle)
 	{
 		NP_LOG(NPLog, Error, TEXT("전투 인카운트를 초기화할 스테이지 타입이 유효하지 않습니다."));
 		return;
 	}
+
+	AlivePartyMemberCount = SessionData.PartyCharacterIds.Num();
+	bEncounterFinished = false;
+	bEncounterFailurePending = false;
+	GetWorldTimerManager().ClearTimer(EncounterFailedTimer);
 
 	const FNPBattleStageData* StageData = UNPGameDataSubsystem::GetGameData<FNPBattleStageData>(this, SessionData.StageId);
 	EncounterData = StageData ? StageData->EncounterData.Get() : nullptr;
@@ -181,11 +184,38 @@ void ANPEncounterManager::MaybeMarkWaveCleared(int32 WaveIndex)
 
 void ANPEncounterManager::TryFinishEncounter()
 {
+	if (bEncounterFinished || bEncounterFailurePending)
+		return;
+
 	for (int32 i = 0; i < TotalWaves; ++i)
 	{
 		if (!WaveCleared[i]) return;
 	}
+	bEncounterFinished = true;
 	OnEncounterCleared.Broadcast();
+}
+
+void ANPEncounterManager::HandlePartyMemberDead(int32 MemberIndex)
+{
+	if (bEncounterFinished || bEncounterFailurePending)
+		return;
+
+	AlivePartyMemberCount = FMath::Max(0, AlivePartyMemberCount - 1);
+	if (AlivePartyMemberCount > 0)
+		return;
+
+	bEncounterFailurePending = true;
+	GetWorldTimerManager().SetTimer(EncounterFailedTimer, this, &ThisClass::FailEncounter, 1.5f, false);
+}
+
+void ANPEncounterManager::FailEncounter()
+{
+	if (bEncounterFinished)
+		return;
+
+	bEncounterFinished = true;
+	bEncounterFailurePending = false;
+	OnEncounterFailed.Broadcast();
 }
 
 void ANPEncounterManager::ScheduleSpawnUnit(int32 WaveIndex, const FNPSpawnUnit& Unit)

@@ -7,7 +7,7 @@
 
 ## Demo
 
-[![NeonProject 플레이 영상](https://img.youtube.com/vi/uSjSHx6xDgg/maxresdefault.jpg)](https://youtu.be/uSjSHx6xDgg)
+[![NeonProject 플레이 영상](https://img.youtube.com/vi/5zD0aCDS7Ng/maxresdefault.jpg)](https://youtu.be/5zD0aCDS7Ng)
 
 > 썸네일을 클릭하면 플레이 영상으로 이동합니다.
 
@@ -57,9 +57,9 @@
 
 ## 실행 방법
 
-배포 패키지는 GitHub **Releases**에서 제공합니다.
+플레이 가능한 Windows 배포 패키지는 [GitHub Releases](https://github.com/NTOTZE/NeonProject/releases/latest)에서 제공합니다.
 
-1. `NeonProject_Portfolio_Win64.zip`을 다운로드합니다.
+1. 최신 Release의 `NeonProject_Portfolio_Win64.zip`을 다운로드합니다.
 2. 압축을 해제합니다.
 3. `NeonProject.exe`를 실행합니다.
 

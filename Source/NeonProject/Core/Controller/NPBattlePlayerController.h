@@ -15,6 +15,8 @@
 
 struct FInputActionValue;
 enum class ETriggerEvent : uint8;
+class UNPPartyComponent;
+class UNPPartyComponent;
 
 UCLASS()
 class NEONPROJECT_API ANPBattlePlayerController : public ANPPlayerControllerBase, public INPTargetingInterface, public INPBattleHUDInterface
@@ -36,6 +38,7 @@ public:	// Party
 	void SpawnAndInitParty(FTransform SpawnTransform, float SpawnDelay, const TArray<FName>& PartyCharacterIds);
 	void BeginSpawnCharacter();
 	void HandleMemberStateChange(ENPCharacterState Flags, bool bValue, int32 idx);
+	UNPPartyComponent* GetPartyComponent() const { return PartyComp; }
 
 /////////////////////////////////////////////////
 // Targeting Interface
@@ -55,6 +58,7 @@ public:	// INPBattleHUDInterface
 	virtual void SetPlayCharacterStaminaBar(float current, float max) override;
 	virtual void SetPlayCharacterSkillCostBar(float current, float max) override;
 	virtual void SetPlayCharacterUltimateCostBar(float current, float max) override;
+	virtual void SetMemberCount(int32 Count) override;
 	virtual void SetMemberHpBar(int32 Idx, float current, float max) override;
 	virtual void SetMemberSkillCostBar(int32 Idx, float current, float max) override;
 	virtual void SetMemberUltimateCostBar(int32 Idx, float current, float max) override;

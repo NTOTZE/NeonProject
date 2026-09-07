@@ -14,4 +14,7 @@ struct FNPCharacterData : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TSoftClassPtr<class ANPCharacterBase> CharacterClass;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TSoftObjectPtr<class UTexture2D> ThumbnailTexture;
 };
