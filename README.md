@@ -59,9 +59,14 @@
 
 플레이 가능한 Windows 배포 패키지는 [GitHub Releases](https://github.com/NTOTZE/NeonProject/releases/latest)에서 제공합니다.
 
-1. 최신 Release의 `NeonProject_Portfolio_Win64.zip`을 다운로드합니다.
-2. 압축을 해제합니다.
-3. `NeonProject.exe`를 실행합니다.
+1. 최신 Release의 `NeonProject_Portfolio_Win64.zip.part-000`부터 `part-007`까지 모두 다운로드합니다.
+2. 다운로드한 파일이 있는 폴더에서 명령 프롬프트를 열고 아래 명령으로 압축 파일을 복원합니다.
+
+   ```bat
+   copy /b NeonProject_Portfolio_Win64.zip.part-000 + NeonProject_Portfolio_Win64.zip.part-001 + NeonProject_Portfolio_Win64.zip.part-002 + NeonProject_Portfolio_Win64.zip.part-003 + NeonProject_Portfolio_Win64.zip.part-004 + NeonProject_Portfolio_Win64.zip.part-005 + NeonProject_Portfolio_Win64.zip.part-006 + NeonProject_Portfolio_Win64.zip.part-007 NeonProject_Portfolio_Win64.zip
+   ```
+
+3. `NeonProject_Portfolio_Win64.zip`을 압축 해제한 뒤 `Windows/NeonProject.exe`를 실행합니다.
 
 ## 소스 저장소 안내
 
